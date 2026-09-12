@@ -49,6 +49,9 @@ extension DocumentWindowController: NSToolbarDelegate {
         let reading: [NSToolbarItem.Identifier] =
             [.toggleSidebar, .sidebarTrackingSeparator, .flexibleSpace,
              .editMode, .commentFile, .comments, .theme, .find, .export, .openIn]
+        let availableReading = Settings.showsCommentingControls
+            ? reading
+            : reading.filter { $0 != .commentFile }
 
         // Editing keeps the switch and loses everything that is about the page:
         // a theme paints the rendered document, and a comment is written onto a
@@ -61,13 +64,13 @@ extension DocumentWindowController: NSToolbarDelegate {
             return [.toggleSidebar, .sidebarTrackingSeparator, .flexibleSpace,
                     .editMode, .find, .openIn, .revert, .save]
         }
-        guard Review.isReview(url) else { return reading }
+        guard Review.isReview(url) else { return availableReading }
 
         // A review keeps only what a reviewer does. Open in and Export are ways
         // of taking a document somewhere else, and this one is a copy that
         // exists to be answered — editing it in Cursor changes nothing anybody
         // will read, and printing it is printing a working file.
-        let reviewing = reading.filter { $0 != .export && $0 != .openIn }
+        let reviewing = availableReading.filter { $0 != .export && $0 != .openIn }
         // Once it is decided, only the button that was pressed stays. Hiding the
         // other one leaves its slot behind, and an empty pill in the toolbar
         // looks like something that failed to load.

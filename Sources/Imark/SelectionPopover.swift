@@ -19,6 +19,7 @@ final class SelectionPopover {
 
     private let container = NSView()
     private lazy var actionsView = buildActions()
+    private var showsCommentingControls = true
     private let composer = NSTextView()
     private let message = NSTextField(labelWithString: "")
 
@@ -80,6 +81,15 @@ final class SelectionPopover {
         show(panel: actionsView)
     }
 
+    /// Rebuilds the selection actions when commenting is turned on or off.
+    /// Translate and Search remain useful in a reader with no writing controls.
+    func setCommentingControls(_ shown: Bool) {
+        guard showsCommentingControls != shown else { return }
+        showsCommentingControls = shown
+        actionsView = buildActions()
+        dismiss()
+    }
+
     private var isComposing = false
 
     private func show(panel: NSView) {
@@ -127,13 +137,15 @@ final class SelectionPopover {
         // a word up is ⌃⌘D in every app on the system, and reading aloud was a
         // button nobody was going to press. What is left is what only exists
         // here or is genuinely faster from a selection.
-        let actions: [(symbol: String, tip: String, action: Selector)] = [
-            ("bubble.left", "Comment", #selector(Target.comment)),
+        var actions: [(symbol: String, tip: String, action: Selector)] = [
             ("character.book.closed", "Translate", #selector(Target.translate)),
             // Named rather than "Search the web": you chose the engine, so the
             // button can say where the press is about to take you.
             ("globe", "Search \(Settings.searchEngine.label)", #selector(Target.searchWeb)),
         ]
+        if showsCommentingControls {
+            actions.insert(("bubble.left", "Comment", #selector(Target.comment)), at: 0)
+        }
 
         let buttons = actions.map { spec -> NSButton in
             let image = NSImage(systemSymbolName: spec.symbol, accessibilityDescription: spec.tip)
@@ -392,4 +404,3 @@ extension SelectionPopover.Target: NSTextViewDelegate {
         }
     }
 }
-

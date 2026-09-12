@@ -89,6 +89,9 @@ public final class RendererView: NSView {
     /// otherwise, so Quick Look and anything else that never sets it keep the
     /// behaviour they have always had.
     private var frontMatter = true
+    /// Whether the page offers the moving `+` used to add a note. Existing
+    /// notes still render when this is off.
+    private var commentingControls = true
 
     /// Which palette to ask the page for on each side of the system's light and
     /// dark switch. The names are `[data-theme]` values in the stylesheet, and
@@ -146,6 +149,7 @@ public final class RendererView: NSView {
             "preview": previewMode,
             "rail": railSide ?? "",
             "frontMatter": frontMatter,
+            "commentingControls": commentingControls,
         ])
     }
 
@@ -182,6 +186,11 @@ public final class RendererView: NSView {
     public func setFrontMatter(_ shown: Bool) {
         frontMatter = shown
         call("window.imark.setFrontMatter", shown)
+    }
+
+    public func setCommentingControls(_ shown: Bool) {
+        commentingControls = shown
+        call("window.imark.setCommentingControls", shown)
     }
 
     /// Quick Look shows the same document in a much smaller panel: tighter

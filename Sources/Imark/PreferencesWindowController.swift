@@ -16,6 +16,7 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
     private let textSizeLabel = NSTextField(labelWithString: "")
     private let width = NSPopUpButton()
     private let author = NSTextField()
+    private let commentingControls = NSButton()
     private var swatches: [Swatch] = []
     private let engine = NSPopUpButton()
     private let editor = NSPopUpButton()
@@ -133,6 +134,11 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func commentRows() -> [(String, NSView)] {
+        commentingControls.title = "Show controls for adding comments"
+        commentingControls.setButtonType(.switch)
+        commentingControls.target = self
+        commentingControls.action = #selector(commentingControlsChanged)
+
         author.placeholderString = NSFullUserName()
         author.target = self
         author.action = #selector(authorCommitted)
@@ -143,6 +149,7 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         colours.spacing = 6
 
         return [
+            ("Commenting", commentingControls),
             ("Sign notes as", author),
             ("Default colour", colours),
         ]
@@ -266,6 +273,7 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         // say where the name is coming from instead of it looking chosen.
         let stored = UserDefaults.standard.string(forKey: "authorName") ?? ""
         author.stringValue = stored
+        commentingControls.state = Settings.showsCommentingControls ? .on : .off
         for swatch in swatches { swatch.isPicked = swatch.colour == Settings.noteColour }
 
         engine.selectItem(at: Settings.SearchEngine.allCases.firstIndex(of: Settings.searchEngine) ?? 0)
@@ -307,6 +315,10 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func authorCommitted() { commitAuthor() }
+
+    @objc private func commentingControlsChanged() {
+        Settings.showsCommentingControls = commentingControls.state == .on
+    }
 
     private func commitAuthor() {
         guard Settings.authorName != author.stringValue else { return }

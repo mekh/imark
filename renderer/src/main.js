@@ -769,7 +769,7 @@ let renderToken = 0
 // Kept so comments can be exported without asking Swift to hand the file back.
 let lastSource = ''
 
-async function render({ markdown, path, theme, preview, rail, frontMatter }) {
+async function render({ markdown, path, theme, preview, rail, frontMatter, commentingControls }) {
   const token = ++renderToken
   lastSource = markdown ?? ''
   docDir = path ? path.slice(0, path.lastIndexOf('/')) || '/' : '/'
@@ -787,6 +787,7 @@ async function render({ markdown, path, theme, preview, rail, frontMatter }) {
   // Carried too, so a document opened after the card was put away does not
   // flash it back for the length of one render.
   if (frontMatter !== undefined) applyFrontMatter(frontMatter)
+  if (commentingControls !== undefined) setCommentingControls(commentingControls)
 
   const { data, body, offset } = splitFrontMatter(markdown ?? '')
   lineOffset = offset
@@ -1121,7 +1122,10 @@ function setUpBlockPlus() {
     // The Quick Look panel renders with the same bundle and cannot write to
     // anything. Existing notes still show — that is reading — but offering a
     // way to add one there is offering something that cannot happen.
-    if (document.documentElement.dataset.preview === 'true') return hidePlus()
+    if (
+      document.documentElement.dataset.preview === 'true'
+      || document.documentElement.dataset.commenting === 'false'
+    ) return hidePlus()
     if (event.target === plusButton) return cancelHide()
     // Not while a selection is live: the popover is already open on words the
     // reader chose, and a second way in would fight it.
@@ -1147,6 +1151,11 @@ function setUpBlockPlus() {
 function clearBlockTarget() {
   document.querySelectorAll('.block-target').forEach((el) => el.classList.remove('block-target'))
   hidePlus()
+}
+
+function setCommentingControls(on) {
+  document.documentElement.dataset.commenting = on ? 'true' : 'false'
+  if (!on) clearBlockTarget()
 }
 
 let selectionTimer = 0
@@ -1294,6 +1303,7 @@ window.imark = {
     document.documentElement.dataset.width = width
   },
   setFrontMatter,
+  setCommentingControls,
   setPreview(on) {
     document.documentElement.dataset.preview = on ? 'true' : 'false'
   },

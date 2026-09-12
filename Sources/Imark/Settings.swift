@@ -180,6 +180,14 @@ enum Settings {
         set { store.set(newValue.attribute, forKey: "noteColour"); announce() }
     }
 
+    /// Whether the reader offers ways to add notes. Existing notes remain
+    /// visible: they are part of the document somebody sent, while the moving
+    /// `+` and the selection action are optional authoring controls.
+    static var showsCommentingControls: Bool {
+        get { store.object(forKey: "showsCommentingControls") as? Bool ?? true }
+        set { store.set(newValue, forKey: "showsCommentingControls"); announce() }
+    }
+
     /// Off by default. The menu bar is the most contested strip of space on the
     /// machine, and a document reader has no standing claim to it.
     static var showInMenuBar: Bool {

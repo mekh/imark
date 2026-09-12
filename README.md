@@ -125,6 +125,10 @@ it, and the notes are still in the file.
   <img src=".github/assets/imark-comments.png" width="620" alt="A phrase underlined in the text, a dot in the margin, and a card floating over the right margin with the note">
 </p>
 
+If you only want to read, deselect **Show controls for adding comments** in
+Settings. The moving **+**, block highlights, and Comment action disappear;
+notes already in a file remain visible.
+
 Select a phrase, press the speech bubble, write, press `↵`. The quoted words get
 underlined, a dot appears in the margin, and clicking either opens the note. Pick
 one of five colours while writing it, or change it later. The card carries **Edit**

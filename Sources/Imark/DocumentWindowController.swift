@@ -853,7 +853,13 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
 
     // MARK: - NSWindowDelegate
 
-    @objc private func settingsChanged() { applySettings() }
+    @objc private func settingsChanged() {
+        let rebuildToolbar = appliedCommentingControls != Settings.showsCommentingControls
+        applySettings()
+        if rebuildToolbar { buildToolbar() }
+    }
+
+    private var appliedCommentingControls: Bool?
 
     /// Everything the page takes from the settings, in one place, so a window
     /// opened now and a window opened an hour ago cannot disagree.
@@ -866,6 +872,9 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         content.renderer.setTextScale(Settings.textScale)
         content.renderer.setWidth(Settings.width.rawValue)
         content.renderer.setFrontMatter(Settings.showsFrontMatter)
+        content.renderer.setCommentingControls(Settings.showsCommentingControls)
+        selectionPopover.setCommentingControls(Settings.showsCommentingControls)
+        appliedCommentingControls = Settings.showsCommentingControls
         refreshThemeButton()
     }
 

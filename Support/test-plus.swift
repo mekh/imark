@@ -157,6 +157,47 @@ await sleep(400)
 results.plusStaysAwayFromTheRails =
   document.querySelector('.block-plus').style.display === 'none'
 
+// Commenting controls are optional. Turning them off removes both the moving
+// button and the block highlight, without changing how existing notes render.
+window.imark.setCommentingControls(false)
+move(wide, wideBox.left + 40, wideBox.top + 5)
+await sleep(60)
+results.noPlusWhenCommentingControlsAreOff =
+  document.querySelector('.block-plus').style.display === 'none'
+results.noBlockHighlightWhenCommentingControlsAreOff =
+  !wide.classList.contains('block-target') && !wide.classList.contains('block-armed')
+
+await window.imark.render({
+  markdown: [
+    '# Heading',
+    '',
+    'A paragraph with a note.',
+    '',
+    '<!-- imark quote="a note" by="miguel" at="2026-08-03T14:00Z"',
+    'Still visible with authoring controls off.',
+    '-->',
+    '',
+  ].join('\\n'),
+  path: '/tmp/t.md',
+  theme: 'dark',
+  commentingControls: false,
+})
+await sleep(300)
+const quietPara = document.querySelector('.note-holder p')
+const quietBox = quietPara.getBoundingClientRect()
+move(quietPara, quietBox.left + 40, quietBox.top + 5)
+await sleep(60)
+results.renderPayloadKeepsThePlusOff =
+  document.querySelector('.block-plus').style.display === 'none'
+results.existingNotesRemainVisibleWithControlsOff =
+  document.querySelectorAll('.note-anchor').length === 1
+
+window.imark.setCommentingControls(true)
+move(quietPara, quietBox.left + 40, quietBox.top + 5)
+await sleep(60)
+results.plusReturnsWhenCommentingControlsAreOn =
+  document.querySelector('.block-plus').style.display !== 'none'
+
 // 7c. A note about the document sits above everything, open, and never
 //     attaches itself to whatever block happens to be first.
 await window.imark.render({
