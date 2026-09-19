@@ -17,6 +17,9 @@
   <img src="https://img.shields.io/badge/network-updates%20only-brightgreen?style=flat-square" alt="Network: update checks and downloads only, can be turned off">
   <img src="https://img.shields.io/badge/size-7%20MB-lightgrey?style=flat-square" alt="7 MB download">
   <img src="https://img.shields.io/badge/licence-MIT-blue?style=flat-square" alt="MIT licence">
+  <a href="https://buymeacoffee.com/migsilva?utm_source=github-imark">
+    <img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-%E2%98%95-FFDD00?style=flat-square" alt="Buy me a coffee">
+  </a>
 </p>
 
 <p align="center">
