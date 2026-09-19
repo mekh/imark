@@ -30,6 +30,12 @@ enum Menu {
             action: #selector(AppDelegate.showShortcuts(_:)),
             keyEquivalent: "/"
         )
+        help.addItem(.separator())
+        help.addItem(
+            withTitle: "Buy Me a Coffee…",
+            action: #selector(AppDelegate.buyCoffee(_:)),
+            keyEquivalent: ""
+        )
         helpItem.submenu = help
 
         let windowItem = NSMenuItem()

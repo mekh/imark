@@ -14,6 +14,7 @@ private extension NSToolbarItem.Identifier {
     static let revert = NSToolbarItem.Identifier("revert")
     static let reviewSendBack = NSToolbarItem.Identifier("reviewSendBack")
     static let reviewApprove = NSToolbarItem.Identifier("reviewApprove")
+    static let coffee = NSToolbarItem.Identifier("coffee")
 }
 
 extension DocumentWindowController: NSToolbarDelegate {
@@ -48,7 +49,7 @@ extension DocumentWindowController: NSToolbarDelegate {
         // else is waiting on should not sit next to Find.
         let reading: [NSToolbarItem.Identifier] =
             [.toggleSidebar, .sidebarTrackingSeparator, .flexibleSpace,
-             .editMode, .commentFile, .comments, .theme, .find, .export, .openIn]
+             .editMode, .commentFile, .comments, .theme, .find, .export, .openIn, .coffee]
         let availableReading = Settings.showsCommentingControls
             ? reading
             : reading.filter { $0 != .commentFile }
@@ -62,7 +63,7 @@ extension DocumentWindowController: NSToolbarDelegate {
             // and it is this app's whole answer to "can it also do X" — it cannot,
             // and it knows who can.
             return [.toggleSidebar, .sidebarTrackingSeparator, .flexibleSpace,
-                    .editMode, .find, .openIn, .revert, .save]
+                    .editMode, .find, .openIn, .revert, .save, .coffee]
         }
         guard Review.isReview(url) else { return availableReading }
 
@@ -70,7 +71,7 @@ extension DocumentWindowController: NSToolbarDelegate {
         // of taking a document somewhere else, and this one is a copy that
         // exists to be answered — editing it in Cursor changes nothing anybody
         // will read, and printing it is printing a working file.
-        let reviewing = availableReading.filter { $0 != .export && $0 != .openIn }
+        let reviewing = availableReading.filter { $0 != .export && $0 != .openIn && $0 != .coffee }
         // Once it is decided, only the button that was pressed stays. Hiding the
         // other one leaves its slot behind, and an empty pill in the toolbar
         // looks like something that failed to load.
@@ -199,6 +200,17 @@ extension DocumentWindowController: NSToolbarDelegate {
             item.label = "Shortcuts"
             item.toolTip = "Keyboard Shortcuts (⌘/)"
             item.action = #selector(AppDelegate.showShortcuts(_:))
+            return item
+
+        case .coffee:
+            // The tip jar, last in the row: Imark is free and stays free, and this
+            // is the one place in the window it says so. Target nil, like the
+            // shortcuts: the page belongs to the app, not to one document.
+            let item = NSToolbarItem(itemIdentifier: identifier)
+            item.image = NSImage(systemSymbolName: "cup.and.saucer", accessibilityDescription: "Buy me a coffee")
+            item.label = "Buy me a coffee"
+            item.toolTip = "Imark is free, and stays free. If it saves you time, buy me a coffee"
+            item.action = #selector(AppDelegate.buyCoffee(_:))
             return item
 
         case .export:
