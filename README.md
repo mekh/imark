@@ -321,6 +321,10 @@ The second note gets an `nth="2"` so it anchors to the right occurrence. Notes o
 the same paragraph stack down the margin rather than landing on top of each
 other.
 
+## Support the project
+
+Imark is free and stays free. If it saves you time, you can [buy me a coffee](https://buymeacoffee.com/migsilva?utm_source=github-imark) — it keeps the next release coming.
+
 ## Security, contributing, licence
 
 Imark is a personal project, maintained by one person. Issues get answered and
