@@ -28,25 +28,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
             Updates.start()
         }
-        // `IMARK_SHOT=/path.png` writes a picture of the front window, toolbar
-        // included, and quits. The only way a script can look at the window
-        // without the screen-recording permission it has no way to be granted.
-        if let path = ProcessInfo.processInfo.environment["IMARK_SHOT"] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                // The document window, not the welcome one that may have opened alongside it.
-                let window = NSApp.windows.first { $0.isVisible && $0.toolbar != nil } ?? NSApp.keyWindow
-                // The window server's picture, not a cached draw: a cached draw leaves
-                // the toolbar's items and the sidebar blank, which is the part to look at.
-                if let window,
-                   let image = CGWindowListCreateImage(
-                       .null, .optionIncludingWindow, CGWindowID(window.windowNumber), [.bestResolution]
-                   ) {
-                    let rep = NSBitmapImageRep(cgImage: image)
-                    try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
-                }
-                NSApp.terminate(nil)
-            }
-        }
     }
 
     // MARK: - Agent files
