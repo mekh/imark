@@ -284,6 +284,19 @@ function setFrontMatter(shown) {
 
 let mermaidSeq = 0
 
+// The text size a drawing is made for: `--size-body` in style.css, with
+// mermaid's labels at 14px beside it. Every other size is scaled from it.
+const DEFAULT_TEXT_SIZE = 16
+
+// Mermaid writes a drawing's width into it as `max-width: Npx`. Handed to the
+// CSS instead, the drawing grows and shrinks with the text size, and stays as
+// sharp as the text: it is a vector, and nothing is drawn again. Left at its
+// own width it stayed put while ⌘+ grew the words around it, and its labels
+// could be too small to read at any text size.
+function sizedByText(svg) {
+  return svg.replace(/^(<svg[^>]*?style="[^"]*?)max-width:\s*([\d.]+)px;?/, '$1--drawn-width: $2px;')
+}
+
 // Mermaid ships its own palette, which clashes badly with ours. Feeding it the
 // live CSS variables keeps diagrams on-theme in both light and dark.
 function mermaidTheme() {
@@ -381,7 +394,7 @@ async function drawDiagrams({ themeVariables, undrawn }) {
   })
   for (const { block, source, key } of undrawn) {
     try {
-      const { svg } = await mermaid.render(`mermaid-${mermaidSeq++}`, source)
+      const svg = sizedByText((await mermaid.render(`mermaid-${mermaidSeq++}`, source)).svg)
       // Another document, or this one in another palette, has started
       // drawing since, and has the page now. Mermaid's settings are global and
       // that drawing has just changed them, so this SVG may be half in the
@@ -1386,6 +1399,7 @@ window.imark = {
   findClear: clearFind,
   setTextScale(scale) {
     document.documentElement.style.setProperty('--size-body', `${scale}px`)
+    document.documentElement.style.setProperty('--text-ratio', String(scale / DEFAULT_TEXT_SIZE))
   },
   /// How much of the top of the page the toolbar is standing on. Everything
   /// pinned to the viewport has to start below it, not just the prose — a rail

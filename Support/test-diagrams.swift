@@ -12,6 +12,10 @@
 //
 // A drawing that is put back keeps the id mermaid gave it, which is how this
 // tells a diagram put back from one drawn again.
+//
+// A drawing kept the width mermaid gave it while ⌘+ grew the text around it,
+// and one wider than the column was squeezed into it at every text size, its
+// labels too small to read.
 
 import AppKit
 import WebKit
@@ -122,6 +126,37 @@ await settled()
 window.imark.setTheme('dark')
 await settled()
 results.aDrawingCaughtByAPaletteChangeIsNotKept = inPalette()
+
+// 10. A drawing grows and shrinks with the text size, by as much as the text
+//     does, and is not drawn again for it: it is a vector.
+window.imark.setTextScale(16)
+await render(TWO)
+const svg = document.querySelector('.mermaid-block svg')
+const drawnWidth = svg.viewBox.baseVal.width
+const width = () => svg.getBoundingClientRect().width
+results.atTheDefaultSizeADiagramIsAsWideAsItWasDrawn = Math.abs(width() - drawnWidth) < 1
+window.imark.setTextScale(24)
+results.aDiagramGrowsWithTheText = Math.abs(width() - drawnWidth * 1.5) < 1
+window.imark.setTextScale(12)
+results.aDiagramShrinksWithTheText = Math.abs(width() - drawnWidth * 0.75) < 1
+results.aDiagramIsNotDrawnAgainForTheTextSize = document.querySelector('.mermaid-block svg') === svg
+window.imark.setTextScale(16)
+
+// 11. A diagram wider than the column fits it at the default size, and past
+//     that grows with the text as well, scrolling sideways in its block like a
+//     table rather than staying squeezed into the column.
+const steps = Array.from({ length: 16 }, (_, i) => `  S${i}[A step with a long label] --> S${i + 1}[A step with a long label]`)
+window.imark.setWidth('full')
+await render(doc(['```mermaid', 'flowchart LR', ...steps, '```'].join('\\n')))
+const wide = document.querySelector('.mermaid-block svg')
+const block = wide.parentElement
+const fitted = wide.getBoundingClientRect().width
+results.aWideDiagramFitsTheColumn = wide.viewBox.baseVal.width > block.clientWidth && Math.abs(fitted - block.clientWidth) < 1
+window.imark.setTextScale(24)
+results.aWideDiagramGrowsWithTheText = Math.abs(wide.getBoundingClientRect().width - fitted * 1.5) < 1
+results.andScrollsSidewaysInItsBlock = block.scrollWidth > block.clientWidth + 1
+window.imark.setTextScale(16)
+window.imark.setWidth('normal')
 
 return JSON.stringify(results)
 """

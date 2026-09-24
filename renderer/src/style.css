@@ -619,6 +619,19 @@ pre code {
 
 .mermaid-block svg { max-width: 100%; height: auto; }
 
+/* As wide as mermaid drew it, or the column if that is narrower, and scaled
+   from there by the text size (`--text-ratio`, set with it). Past the column
+   it scrolls sideways, like a table: a wide diagram squeezed into the column
+   is the one whose labels most need the bigger text. A block of its own, so
+   the part that does not fit overflows to the right, where it can be
+   scrolled to, rather than to both sides. */
+.mermaid-block svg[style*='--drawn-width'] {
+  display: block;
+  margin: 0 auto;
+  width: calc(min(var(--drawn-width), 100%) * var(--text-ratio, 1));
+  max-width: none;
+}
+
 .diagram-error {
   text-align: left;
   padding: calc(var(--step) * 4);
