@@ -59,20 +59,33 @@ const isExternal = (href) => /^[a-z][a-z0-9+.-]*:/i.test(href) && !href.startsWi
 
 /* ----------------------------------------------------------------- parser */
 
+// Every id handed out in this document, and how many times each heading text
+// has come round.
 const slugCounts = new Map()
 
+// The id GitHub gives the same heading, so a link written for GitHub — or by
+// any of the tools that write a table of contents the way GitHub reads it —
+// lands here too. Checked against github-slugger for every character it knows.
+//
+// Marks stay on their letters: `й` and `ї` are letters of their own in
+// Ukrainian, not an `и` and an `і` with something to take off. Underscores stay,
+// and every space is a hyphen of its own, so `a  b` is `a--b`.
 function slugify(text) {
   const base =
     text
       .toLowerCase()
       .trim()
-      .replace(/[̀-ͯ]/g, '')
-      .normalize('NFD')
-      .replace(/[^\p{L}\p{N}\s-]/gu, '')
-      .replace(/\s+/g, '-') || 'section'
-  const seen = slugCounts.get(base) ?? 0
-  slugCounts.set(base, seen + 1)
-  return seen === 0 ? base : `${base}-${seen}`
+      .replace(/[^\p{Alphabetic}\p{M}\p{Nd}\p{Pc} -]/gu, '')
+      .replace(/ /g, '-') || 'section'
+  // A repeat is numbered, and so is a number that is already somebody's
+  // heading: `a`, `a`, `a-1` come out as `a`, `a-1`, `a-1-1`.
+  let slug = base
+  while (slugCounts.has(slug)) {
+    slugCounts.set(base, slugCounts.get(base) + 1)
+    slug = `${base}-${slugCounts.get(base)}`
+  }
+  slugCounts.set(slug, 0)
+  return slug
 }
 
 const md = new MarkdownIt({
@@ -355,6 +368,15 @@ function buildToc(root) {
 // travelled, so a jump across a long document takes one or two seconds. This
 // starts at once and always lands in about a third of a second.
 let scrollAnimation = 0
+
+// How much of the top of the page the toolbar stands on, as Swift last said.
+const topInset = () =>
+  parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top-inset')) || 0
+
+// Where the page goes to show a heading: just under the toolbar. Measured from
+// the top of the window it went behind the toolbar, and it took a line of
+// scrolling back to read what the jump had been to.
+const headingTop = (el) => el.getBoundingClientRect().top + window.scrollY - topInset() - 24
 
 function glideTo(top) {
   cancelAnimationFrame(scrollAnimation)
@@ -662,7 +684,7 @@ function attachRail(rail) {
     const at = Math.min(Math.max(row / 2, 0), railBlocks.length - 1)
     const lower = Math.floor(at)
     const upper = Math.min(lower + 1, railBlocks.length - 1)
-    const topOf = (i) => railBlocks[i].getBoundingClientRect().top + window.scrollY - 24
+    const topOf = (i) => headingTop(railBlocks[i])
     const from = topOf(lower)
     return from + (topOf(upper) - from) * (at - lower)
   }
@@ -673,7 +695,7 @@ function attachRail(rail) {
   const goTo = (index, smooth) => {
     const target = railBlocks[railSection[index]]
     if (!target) return
-    const top = target.getBoundingClientRect().top + window.scrollY - 24
+    const top = headingTop(target)
     // Dragging tracks the pointer one to one; a click gets the glide.
     if (smooth) glideTo(top)
     else {
@@ -839,16 +861,20 @@ let scrollQueued = false
 
 function updateActiveHeading() {
   if (!activeHeadings.length) return
+  // Counted from under the toolbar, where the visible page starts: from the
+  // top of the window, a heading a jump had just put on screen could still
+  // read as the section after the active one.
+  const inset = topInset()
   let index = 0
   for (let i = 0; i < activeHeadings.length; i += 1) {
-    if (activeHeadings[i].getBoundingClientRect().top <= 80) index = i
+    if (activeHeadings[i].getBoundingClientRect().top <= inset + 80) index = i
     else break
   }
   bridge({ type: 'active', id: activeHeadings[index].id })
 
   let block = 0
   for (let i = 0; i < railBlocks.length; i += 1) {
-    if (railBlocks[i].getBoundingClientRect().top <= 90) block = i
+    if (railBlocks[i].getBoundingClientRect().top <= inset + 90) block = i
     else break
   }
   // Headings sit on the even rows, gradations on the odd ones.
@@ -1206,10 +1232,32 @@ document.addEventListener('click', (event) => {
   }
 })
 
-function scrollToAnchor(id) {
-  const target = document.getElementById(id)
+function scrollToAnchor(fragment) {
+  const target = findAnchor(fragment)
   if (!target) return
-  glideTo(target.getBoundingClientRect().top + window.scrollY - 24)
+  glideTo(headingTop(target))
+}
+
+/// The element a `#fragment` names. A link's href arrives percent-encoded —
+/// markdown-it escapes everything outside ASCII, so `#мій-розділ` gets here as
+/// `%D0%BC%D1%96%D0%B9-…` and no id is spelled like that. The outline in the
+/// sidebar sends the id as it is, which decoding leaves alone.
+function findAnchor(fragment) {
+  let id = fragment
+  try {
+    id = decodeURIComponent(fragment)
+  } catch {
+    /* a lone `%` is just a character */
+  }
+  const exact = document.getElementById(id) ?? document.getElementById(fragment)
+  if (exact) return exact
+  // Links written against the ids Imark used to make are in documents already:
+  // accents off, underscores gone, a run of spaces as one hyphen — `#acao-rapida`
+  // for "Ação rápida". Compared with all of that taken out of both sides.
+  const plain = (s) =>
+    s.normalize('NFD').toLowerCase().replace(/[^\p{L}\p{Nd}\p{Nl}-]/gu, '').replace(/-+/g, '-')
+  const wanted = plain(id)
+  return [...content().querySelectorAll('[id]')].find((el) => plain(el.id) === wanted) ?? null
 }
 
 /* ------------------------------------------------------------------ find */

@@ -92,6 +92,7 @@ if [ "${1:-}" != "--force" ]; then
 	swift Support/test-plus.swift >/dev/null 2>&1 || die "the margin button tests failed"
 	swift Support/test-pieces.swift >/dev/null 2>&1 || die "the list and table note tests failed"
 	swift Support/test-front-matter.swift >/dev/null 2>&1 || die "the front matter tests failed"
+	swift Support/test-anchors.swift >/dev/null 2>&1 || die "the heading link tests failed"
 	Support/test-review.sh >/dev/null 2>&1 || die "the review round trip tests failed"
 	# test-setup.sh needs an assembled app, so it runs after the build instead.
 
