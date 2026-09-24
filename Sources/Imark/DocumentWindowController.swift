@@ -927,8 +927,8 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
 
     private var appliedCommentingControls: Bool?
 
-    /// Everything the page takes from the settings, in one place, so a window
-    /// opened now and a window opened an hour ago cannot disagree.
+    /// Everything the page and the editor take from the settings, in one place,
+    /// so a window opened now and a window opened an hour ago cannot disagree.
     private func applySettings() {
         content.renderer.palettes = (
             light: Settings.palette.face(dark: false),
@@ -936,6 +936,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         )
         content.renderer.applyTheme()
         content.renderer.setTextScale(Settings.textScale)
+        content.editor.setTextScale(Settings.textScale)
         content.renderer.setWidth(Settings.width.rawValue)
         content.renderer.setFrontMatter(Settings.showsFrontMatter)
         content.renderer.setCommentingControls(Settings.showsCommentingControls)

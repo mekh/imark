@@ -61,6 +61,7 @@ enum EditorTest {
         try theEditorFollowsTheFile()
         try aSaveWillNotLandOnSomebodyElsesWork()
         try typingIsUndoneByTyping()
+        theTextSizeReachesTheEditor()
 
         try? FileManager.default.removeItem(at: folder)
         print(failures == 0 ? "\nall good" : "\n\(failures) failing")
@@ -214,5 +215,115 @@ enum EditorTest {
         check("and the file was never touched", read(url) == before)
         window.close()
         spin(0.3)
+    }
+
+    // MARK: - Text size
+
+    /// The line of the file at the top edge of the buffer, counted as the gutter
+    /// counts it, and how far down that line the edge falls.
+    static func topLine(of view: NSTextView) -> (line: Int, share: CGFloat) {
+        guard let layout = view.layoutManager, let container = view.textContainer else { return (0, 0) }
+        let top = view.visibleRect.minY - view.textContainerOrigin.y
+        let glyph = layout.glyphIndex(for: NSPoint(x: 0, y: top), in: container)
+        let fragment = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+        let line = LineGutter.lineNumber(at: layout.characterIndexForGlyph(at: glyph), in: view.string as NSString)
+        return (line, (top - fragment.minY) / fragment.height)
+    }
+
+    /// A menu item's action, sent up the responder chain from the focused view the
+    /// way the menu sends it, rather than to the controller directly.
+    static func press(_ action: Selector, in window: DocumentWindowController) {
+        _ = window.window?.firstResponder?.tryToPerform(action, with: nil)
+        spin(0.2)
+    }
+
+    /// ⌘+ and ⌘− only ever reached the page, which is hidden while the file is
+    /// open as text: the buffer stayed at one size whatever was pressed.
+    static func theTextSizeReachesTheEditor() {
+        print("▸ the text size reaches the editor")
+        UserDefaults.standard.removeObject(forKey: "textScale")
+        let lines = (0..<400).map { "Line \($0) of the file." }
+        let url = fixture("# A heading\n\n" + lines.joined(separator: "\n") + "\n", named: "size.md")
+        let window = open(url)
+        window.toggleEditMode(nil)
+        spin(0.5)
+        guard let view = buffer(of: window), let layout = view.layoutManager,
+              let storage = view.textStorage else { return check("found the buffer", false) }
+        check("the buffer has the keyboard", window.window?.firstResponder === view)
+
+        let body = (view.string as NSString).range(of: "Line 200 ").location
+        func bodyFont() -> NSFont? { storage.attribute(.font, at: body, effectiveRange: nil) as? NSFont }
+        func headingFont() -> NSFont? { storage.attribute(.font, at: 2, effectiveRange: nil) as? NSFont }
+        let gutter = window.content.editor.subviews.first { $0 is LineGutter }
+        check("the buffer opens at its usual size", bodyFont()?.pointSize == 12.5, "\(bodyFont()?.pointSize ?? 0)")
+
+        // A third of the way into line 203, "Line 200", far down the file.
+        let fragment = layout.lineFragmentRect(forGlyphAt: layout.glyphIndexForCharacter(at: body), effectiveRange: nil)
+        view.scroll(NSPoint(x: 0, y: fragment.minY + fragment.height / 3 + view.textContainerOrigin.y))
+        spin(0.1)
+        func onTheSameLine() -> Bool {
+            let top = topLine(of: view)
+            return top.line == 203 && abs(top.share - 1 / 3) < 0.05
+        }
+        check("the reader starts a third into line 203", onTheSameLine(), "\(topLine(of: view))")
+
+        press(#selector(DocumentWindowController.increaseText(_:)), in: window)
+        check("⌘+ sets the buffer a size bigger", bodyFont()?.pointSize == 12.5 * 17 / 16,
+              "\(bodyFont()?.pointSize ?? 0)")
+        check("headings grow with it and stay heavier",
+              headingFont()?.pointSize == 12.5 * 17 / 16 && headingFont()?.fontName != bodyFont()?.fontName,
+              "\(headingFont().map { "\($0.fontName) \($0.pointSize)" } ?? "none")")
+        check("the gutter makes room for the bigger numbers", (gutter?.frame.width ?? 0) > 46,
+              "\(gutter?.frame.width ?? 0)")
+        check("and the same line is at the top", onTheSameLine(), "\(topLine(of: view))")
+
+        press(#selector(DocumentWindowController.decreaseText(_:)), in: window)
+        press(#selector(DocumentWindowController.decreaseText(_:)), in: window)
+        check("⌘− twice sets it a size smaller than it began", bodyFont()?.pointSize == 12.5 * 15 / 16,
+              "\(bodyFont()?.pointSize ?? 0)")
+        check("still on the same line", onTheSameLine(), "\(topLine(of: view))")
+
+        // The slider in Settings, which every open window hears.
+        Settings.textScale = 24
+        spin(0.2)
+        check("the Settings slider reaches the buffer", bodyFont()?.pointSize == 12.5 * 24 / 16,
+              "\(bodyFont()?.pointSize ?? 0)")
+        check("and keeps the line too", onTheSameLine(), "\(topLine(of: view))")
+
+        press(#selector(DocumentWindowController.resetText(_:)), in: window)
+        check("⌘0 puts the usual size back", bodyFont()?.pointSize == 12.5, "\(bodyFont()?.pointSize ?? 0)")
+
+        view.scroll(.zero)
+        spin(0.1)
+        press(#selector(DocumentWindowController.increaseText(_:)), in: window)
+        check("the top of the file stays the top", view.visibleRect.minY == 0, "\(view.visibleRect.minY)")
+
+        // ⌘+ while reading, and the file opened as text again afterwards.
+        window.toggleEditMode(nil)
+        spin(0.3)
+        press(#selector(DocumentWindowController.increaseText(_:)), in: window)
+        window.toggleEditMode(nil)
+        spin(0.5)
+        check("the editor opens in the size chosen while reading", bodyFont()?.pointSize == 12.5 * 18 / 16,
+              "\(bodyFont()?.pointSize ?? 0)")
+        window.close()
+        spin(0.3)
+
+        // Past the size where colouring stops, nothing sets the font but the size.
+        let long = fixture(String(repeating: "A line that counts towards the colouring limit.\n", count: 12_000),
+                           named: "long.md")
+        let other = open(long)
+        other.toggleEditMode(nil)
+        spin(0.5)
+        guard let big = buffer(of: other), let bigStorage = big.textStorage, bigStorage.length > 512 * 1_024
+        else { return check("found a buffer past the limit", false) }
+        func bigFont() -> NSFont? { bigStorage.attribute(.font, at: 1_000, effectiveRange: nil) as? NSFont }
+        check("a file too long to colour opens in the current size", bigFont()?.pointSize == 12.5 * 18 / 16,
+              "\(bigFont()?.pointSize ?? 0)")
+        press(#selector(DocumentWindowController.increaseText(_:)), in: other)
+        check("and changes size with ⌘+", bigFont()?.pointSize == 12.5 * 19 / 16, "\(bigFont()?.pointSize ?? 0)")
+        other.close()
+        spin(0.3)
+        UserDefaults.standard.removeObject(forKey: "textScale")
     }
 }
