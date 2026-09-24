@@ -12,6 +12,10 @@
 //
 // A drawing that is put back keeps the id mermaid gave it, which is how this
 // tells a diagram put back from one drawn again.
+//
+// Diagrams were drawn in document order, the one in front of the reader after
+// every one above it, and each drawing that landed above the reader pushed the
+// page down under them.
 
 import AppKit
 import WebKit
@@ -122,6 +126,48 @@ await settled()
 window.imark.setTheme('dark')
 await settled()
 results.aDrawingCaughtByAPaletteChangeIsNotKept = inPalette()
+
+const filler = (count) =>
+  Array.from({ length: count }, (_, i) => `Paragraph ${i}. ${'Words to fill the page with. '.repeat(12)}`).join('\\n\\n')
+
+// 10. The diagram in front of the reader is drawn before the ones above it: in
+//     document order a change of theme repainted the one being looked at last.
+await render(doc(diagram('Far above'), filler(60), diagram('Just above'), filler(60), diagram('In view'), filler(30)))
+const blocks = [...document.querySelectorAll('.mermaid-block')]
+blocks[2].scrollIntoView({ block: 'center' })
+const order = []
+const watching = new MutationObserver((records) => {
+  for (const record of records) {
+    const index = blocks.indexOf(record.target)
+    if (!order.includes(index)) order.push(index)
+  }
+})
+for (const block of blocks) watching.observe(block, { childList: true })
+window.imark.setTheme('light')
+await settled()
+watching.disconnect()
+results.theDiagramInViewIsDrawnFirst = order[0] === 2
+results.thenTheNearestOfTheRest = JSON.stringify(order) === '[2,1,0]'
+window.imark.setTheme('dark')
+await settled()
+
+// 11. What the reader is looking at stays put when a drawing lands above it.
+//     A reader who scrolls on while a document's diagrams are still being
+//     drawn had each one push the page down under them as it arrived.
+window.scrollTo(0, 0)
+const arriving = render(doc(diagram('Arriving above'), filler(60)))
+const reading = [...document.querySelectorAll('#content p')].find((p) => p.textContent.startsWith('Paragraph 30.'))
+window.scrollTo(0, window.scrollY + reading.getBoundingClientRect().top)
+const readingAt = reading.getBoundingClientRect().top
+let movedBy = null
+const landing = new MutationObserver(() => {
+  movedBy = reading.getBoundingClientRect().top - readingAt
+})
+landing.observe(document.querySelector('.mermaid-block'), { childList: true })
+await arriving
+landing.disconnect()
+results.aDrawingAboveTheReaderIsDrawn = document.querySelector('.mermaid-block svg') !== null
+results.andWhatTheyAreReadingStaysPut = movedBy !== null && Math.abs(movedBy) < 1
 
 return JSON.stringify(results)
 """
