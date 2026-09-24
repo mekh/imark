@@ -30,7 +30,7 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
     private let shortcuts = NSButton()
 
     private init() {
-        let window = NSWindow(
+        let window = SettingsWindow(
             contentRect: NSRect(x: 0, y: 0, width: 470, height: 300),
             styleMask: [.titled, .closable],
             backing: .buffered,
@@ -353,4 +353,13 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
     @objc private func makeDefaultPressed() {
         MarkdownType.makeImarkDefault { [weak self] _ in self?.refresh() }
     }
+}
+
+
+/// Escape closes it, as it closes the Keyboard Shortcuts panel. A plain window
+/// passes Escape on as `cancel:`, which nothing here answers, so the key did
+/// nothing and the way out was ⌘W or the red dot. Closing goes through
+/// `windowWillClose`, so a name still being typed is kept.
+private final class SettingsWindow: NSWindow {
+    override func cancelOperation(_ sender: Any?) { close() }
 }
