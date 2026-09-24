@@ -497,9 +497,9 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
     }
 
     /// Entering editing reads the file again — the page may have been rendered
-    /// from a copy that is minutes old. Leaving it asks first if there is
-    /// anything unsaved, because the way back is a re-render and the buffer would
-    /// go with it.
+    /// from a copy that is minutes old — and opens it on the line the page was
+    /// showing. Leaving it asks first if there is anything unsaved, because the
+    /// way back is a re-render and the buffer would go with it.
     private func setEditMode(_ on: Bool) {
         // Clicking the segment that is already lit used to re-enter the mode, which
         // re-read the file and loaded it over whatever was typed, without asking.
@@ -510,6 +510,14 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
             }
             stamp = Comments.Stamp(of: url)
             content.editor.load(text)
+            // Asked before the page is put away, and answered a moment after the
+            // switch, which does not wait: the page can be busy drawing a diagram,
+            // and ⌘E should not be. With no answer the file opens at the top, as
+            // it always did.
+            content.renderer.topLine { [weak self] line in
+                guard let self, let line, self.editMode, !self.content.editor.isDirty else { return }
+                self.content.editor.reveal(line: line)
+            }
         } else {
             // The same question the window asks on the way out, and the segment
             // has already moved under the pointer — putting it back is what makes

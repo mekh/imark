@@ -1821,6 +1821,37 @@ function keepingPlace(change) {
   if (Math.abs(by) >= 1) window.scrollBy(0, by)
 }
 
+/* ---------------------------------------------------- the line at the top */
+
+// The line of the file at the top of the view, counted from zero as data-line
+// is. The editor opens on it: it used to open on the first line of the file,
+// and a typo spotted forty screens down had to be found again in the source.
+function topLine() {
+  // Measured from under the toolbar, where the visible page starts.
+  const top = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top-inset')) || 0
+  // The last block to start at or above that line: the list item or table row
+  // being read rather than the whole list. Blocks come in the order they sit
+  // on the page; one with no height is not on it. A block scrolled to that line
+  // lands on it only to a fraction of a pixel, and can be just below it.
+  let block = null
+  for (const candidate of content().querySelectorAll('[data-line]')) {
+    const box = candidate.getBoundingClientRect()
+    if (!box.height) continue
+    if (box.top > top + 1) break
+    block = candidate
+  }
+  // Above the first block: the top of the page, or the front matter card.
+  const lines = lineRange(block)
+  if (!lines) return 0
+  const box = block.getBoundingClientRect()
+  // In the gap before the next block: the line after this one.
+  if (top >= box.bottom) return lines.end
+  // Inside it, the source line at the same share of its height: a paragraph
+  // written over several lines, or a long code block, is not all its first line.
+  const share = Math.max(0, (top - box.top) / box.height)
+  return lines.start + Math.floor(share * (lines.end - lines.start))
+}
+
 /* ------------------------------------------------------------------- api */
 
 window.imark = {
@@ -1891,6 +1922,7 @@ window.imark = {
   },
   stepNote,
   exportComments: () => toVisibleText(lastSource),
+  topLine,
   /// Opens the note that was just written, so a comment lands visibly rather
   /// than silently changing a file.
   revealNote(index) {

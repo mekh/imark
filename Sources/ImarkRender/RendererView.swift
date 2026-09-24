@@ -255,6 +255,16 @@ public final class RendererView: NSView {
         }
     }
 
+    /// The line of the file at the top of the page, counted from zero. Asked
+    /// rather than tracked: only the page can measure what is under the toolbar,
+    /// and nil means there was no page to ask.
+    public func topLine(_ done: @escaping (Int?) -> Void) {
+        guard isReady else { return done(nil) }
+        webView.evaluateJavaScript("window.imark.topLine()") { value, _ in
+            done((value as? NSNumber)?.intValue)
+        }
+    }
+
     /// Moves to the next (+1) or previous (-1) note, wrapping around.
     public func stepNote(_ delta: Int) {
         call("window.imark.stepNote", delta)
