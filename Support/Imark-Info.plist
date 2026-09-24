@@ -50,9 +50,9 @@
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUFeedURL</key>
-	<string>https://github.com/migsilva89/imark/releases/latest/download/appcast.xml</string>
+	<string>https://raw.githubusercontent.com/mekh/homebrew-tap/main/appcasts/imark.xml</string>
 	<key>SUPublicEDKey</key>
-	<string>kasuFZl5OUGi87Nim7zekUU40UPkty9HiSYiD+O6OiA=</string>
+	<string>5NM93jSW7LDkAsxZ/LHIRtgYkcIdNVRqCk7BO9JCxVo=</string>
 	<key>SURequireSignedFeed</key>
 	<true/>
 	<key>SUScheduledCheckInterval</key>
