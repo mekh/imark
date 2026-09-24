@@ -37,6 +37,9 @@ The rest of the suites, the ones a release runs:
 ```bash
 swiftc -parse-as-library Sources/Imark/Comments.swift Sources/Imark/NoteColour.swift \
   Support/test-comments.swift -o /tmp/imark-test && /tmp/imark-test
+swiftc -parse-as-library Sources/Imark/LinkRouter.swift Sources/Imark/MarkdownType.swift \
+  Sources/ImarkRender/SchemeHandler.swift Support/test-links.swift \
+  -o /tmp/imark-test-links && /tmp/imark-test-links
 Support/test-setup.sh
 Support/test-cli.sh
 Support/test-update.sh
