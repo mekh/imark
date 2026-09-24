@@ -19,13 +19,19 @@ final class MarkdownEditorView: NSView {
     private let scroll = NSScrollView()
     private let textView = NSTextView()
     private let gutter = LineGutter()
+    private var gutterWidth: NSLayoutConstraint!
     private var boundsObserver: NSObjectProtocol?
 
     /// The file as it was read. What the gutter's bars are measured against, and
     /// what tells "unsaved" from "saved".
     private var diskText = ""
 
-    static let font = NSFont.monospacedSystemFont(ofSize: 12.5, weight: .regular)
+    /// The buffer's size at the reader's default text size. ⌘+ and ⌘− scale it
+    /// by the same share as the page, so the two keep the proportion they had.
+    static let defaultFontSize: CGFloat = 12.5
+    /// The reader's text size over its default, as last sent by the window.
+    private var scale: CGFloat = 1
+    private var fontSize: CGFloat { Self.defaultFontSize * scale }
 
     var text: String { textView.string }
     var isDirty: Bool { textView.string != diskText }
@@ -45,7 +51,7 @@ final class MarkdownEditorView: NSView {
         textView.usesFindBar = true
         textView.isIncrementalSearchingEnabled = true
         textView.drawsBackground = false
-        textView.font = Self.font
+        textView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
         textView.textContainerInset = NSSize(width: 10, height: 12)
         // A document is not prose the system should be correcting: a smart quote
         // in Markdown is a smart quote in the file, and an em dash where somebody
@@ -66,11 +72,12 @@ final class MarkdownEditorView: NSView {
 
         addSubview(gutter)
         addSubview(scroll)
+        gutterWidth = gutter.widthAnchor.constraint(equalToConstant: 46)
         NSLayoutConstraint.activate([
             gutter.leadingAnchor.constraint(equalTo: leadingAnchor),
             gutter.topAnchor.constraint(equalTo: topAnchor),
             gutter.bottomAnchor.constraint(equalTo: bottomAnchor),
-            gutter.widthAnchor.constraint(equalToConstant: 46),
+            gutterWidth,
             scroll.leadingAnchor.constraint(equalTo: gutter.trailingAnchor),
             scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
             scroll.topAnchor.constraint(equalTo: topAnchor),
@@ -98,6 +105,7 @@ final class MarkdownEditorView: NSView {
     /// a freshly opened document has nothing unsaved in it.
     func load(_ text: String) {
         textView.string = text
+        textView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
         diskText = text
         textView.undoManager?.removeAllActions()
         refresh()
@@ -142,6 +150,64 @@ final class MarkdownEditorView: NSView {
         textView.performTextFinderAction(item)
     }
 
+    /// The reader's text size, in points, from the same menu items and slider as
+    /// the page's. The buffer used to stay at one size, so ⌘+ in the editor only
+    /// changed the page behind it, where nobody could see it until they went back
+    /// to reading. Every window is sent the text size on any change in Settings:
+    /// the size it already has does nothing, because highlighting a long file
+    /// again is not free.
+    func setTextScale(_ points: Double) {
+        let scale = CGFloat(points / Settings.defaultTextScale)
+        guard scale != self.scale else { return }
+        self.scale = scale
+        gutter.scale = scale
+        // The numbers grow with the text, and a line in the thousands still has to
+        // fit beside it.
+        gutterWidth.constant = (46 * scale).rounded()
+        // Behind the page the buffer still holds whatever was edited last, and
+        // setting that again on every ⌘+ while reading is work nobody sees: `load`
+        // sets the file in the new size when it is opened as text again.
+        guard !isHidden else { return }
+        let place = topPlace()
+        textView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        // The buffer takes its new width now rather than on the next pass, which
+        // would wrap the lines again under the place just kept.
+        layoutSubtreeIfNeeded()
+        refresh()
+        keep(place)
+    }
+
+    /// Where the view starts: the character at its top edge, and how far down
+    /// that character's line the edge falls, as a share of the line's height.
+    /// The scroll offset is kept in pixels, and every line above it is a different
+    /// height once the size changes, so without this each ⌘+ scrolled the buffer
+    /// back and each ⌘− scrolled it on. Nil at the very top, which stays the top.
+    private func topPlace() -> (character: Int, share: CGFloat)? {
+        guard let layout = textView.layoutManager, let container = textView.textContainer,
+              layout.numberOfGlyphs > 0 else { return nil }
+        let top = textView.visibleRect.minY - textView.textContainerOrigin.y
+        guard top > 0 else { return nil }
+        let glyph = layout.glyphIndex(for: NSPoint(x: 0, y: top), in: container)
+        let line = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+        guard line.height > 0 else { return nil }
+        return (layout.characterIndexForGlyph(at: glyph), (top - line.minY) / line.height)
+    }
+
+    /// Puts a place from `topPlace` back at the top of the view.
+    private func keep(_ place: (character: Int, share: CGFloat)?) {
+        guard let place, let layout = textView.layoutManager,
+              let container = textView.textContainer else { return }
+        let glyph = layout.glyphIndexForCharacter(at: place.character)
+        let line = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+        let top = line.minY + line.height * place.share
+        // The buffer grows to the new size only as far as it has been laid out,
+        // and the rest is laid out later. A view's worth past the place has to be
+        // there now, or a bigger size stopped the scroll short of it.
+        let reach = NSRect(x: 0, y: top, width: container.size.width, height: textView.visibleRect.height)
+        layout.ensureLayout(forBoundingRect: reach, in: container)
+        textView.scroll(NSPoint(x: 0, y: top + textView.textContainerOrigin.y))
+    }
+
     /// Re-highlights and repaints. Cheap enough per keystroke at the size Imark
     /// already caps documents to.
     private func refresh() {
@@ -154,7 +220,7 @@ final class MarkdownEditorView: NSView {
             gutter.needsDisplay = true
             return
         }
-        MarkdownHighlighter.apply(to: textView)
+        MarkdownHighlighter.apply(to: textView, size: fontSize)
         gutter.modifiedLines = Self.modifiedLines(current: textView.string, original: diskText)
         gutter.needsDisplay = true
     }
@@ -218,15 +284,15 @@ extension MarkdownEditorView: NSTextViewDelegate {
 /// work on a light face as well as a dark one: the six themes only ever paint the
 /// rendered page, and the editor is text on the system's own background.
 enum MarkdownHighlighter {
-    static func apply(to textView: NSTextView) {
+    static func apply(to textView: NSTextView, size: CGFloat) {
         guard let storage = textView.textStorage else { return }
         let source = textView.string as NSString
         let full = NSRange(location: 0, length: source.length)
-        let heading = NSFont.monospacedSystemFont(ofSize: 12.5, weight: .semibold)
+        let heading = NSFont.monospacedSystemFont(ofSize: size, weight: .semibold)
 
         storage.beginEditing()
         storage.setAttributes([
-            .font: MarkdownEditorView.font,
+            .font: NSFont.monospacedSystemFont(ofSize: size, weight: .regular),
             .foregroundColor: NSColor.textColor,
         ], range: full)
 
@@ -345,6 +411,9 @@ enum MarkdownHighlighter {
 final class LineGutter: NSView {
     weak var textView: NSTextView?
     var modifiedLines: Set<Int> = []
+    /// The editor's text size over its default, which the numbers follow so they
+    /// stay the size of the lines they count.
+    var scale: CGFloat = 1
 
     override var isFlipped: Bool { true }
 
@@ -419,7 +488,7 @@ final class LineGutter: NSView {
 
             let label = "\(number)" as NSString
             let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .regular),
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 10.5 * scale, weight: .regular),
                 .foregroundColor: number == current ? NSColor.secondaryLabelColor : NSColor.tertiaryLabelColor,
             ]
             let size = label.size(withAttributes: attributes)
