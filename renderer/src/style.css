@@ -635,6 +635,94 @@ pre code {
   font-size: 12px;
 }
 
+/* --------------------------------------------------------- diagram viewer */
+
+.mermaid-block.is-rendered svg { cursor: zoom-in; }
+:root[data-preview='true'] .mermaid-block svg { cursor: auto; }
+
+/* Over the whole window, the strip under the toolbar included, as the page is;
+   the stage starts below the toolbar. Contained, so scrolling past the end of
+   the diagram does not scroll the page behind it. */
+.diagram-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: var(--bg);
+  outline: none;
+  cursor: grab;
+  -webkit-user-select: none;
+  user-select: none;
+  animation: diagram-viewer-in 120ms ease-out;
+}
+
+.diagram-viewer.is-panning { cursor: grabbing; }
+
+@keyframes diagram-viewer-in { from { opacity: 0; } }
+
+/* Centred by its auto margins rather than by the flex box: a diagram bigger
+   than the window then runs off to the right and the bottom, where it can be
+   scrolled to, and not off the top and the left, where it cannot. */
+.diagram-stage {
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+  min-height: 100%;
+  padding:
+    calc(var(--step) * 8 + var(--top-inset, 0px))
+    calc(var(--step) * 8)
+    calc(var(--step) * 20);
+}
+
+.diagram-stage svg {
+  display: block;
+  flex: none;
+  margin: auto;
+}
+
+.diagram-controls {
+  position: fixed;
+  bottom: calc(var(--step) * 5);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.12);
+  cursor: default;
+}
+
+.diagram-controls button {
+  min-width: 32px;
+  height: 28px;
+  padding: 0 10px;
+  font: 500 13px var(--font-body);
+  color: var(--secondary);
+  background: none;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.diagram-controls button:hover {
+  color: var(--text);
+  background: var(--code-bg);
+}
+
+.diagram-controls .diagram-zoom {
+  min-width: 56px;
+  font-variant-numeric: tabular-nums;
+}
+
+@media print {
+  .diagram-viewer { display: none; }
+}
+
 /* ----------------------------------------------------------------- media */
 
 img {
