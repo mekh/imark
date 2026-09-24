@@ -12,6 +12,10 @@
 //
 // The ids are GitHub's, so the links a document was written with on GitHub
 // work here too — and the ones written against the ids Imark used to make.
+//
+// The other half is what Back needs: a jump inside the page has to tell the app
+// where the reader was, the app has to be able to put them back there, and a
+// link to a heading in another file has to say which heading.
 
 import AppKit
 import WebKit
@@ -56,6 +60,7 @@ const DOC = [
   '- [Old spaces](#a-b)',
   '- [Hello world](#hello-world)',
   '- [Nowhere](#no-such-heading)',
+  '- [Another file](other.md#мій-розділ)',
   '',
   filler,
   '',
@@ -93,6 +98,7 @@ const DOC = [
 
 const byId = (id) => document.getElementById(id)
 const link = (label) => [...document.querySelectorAll('#content a')].find((a) => a.textContent === label)
+const jumps = () => sent.filter((m) => m.type === 'jump')
 // The glide lands in under half a second.
 const landed = () => sleep(600)
 // The heading sits just under the top of the window, where a jump puts it.
@@ -113,12 +119,15 @@ results.everySpaceIsAHyphen = !!byId('a--b')
 results.repeatsAreNumberedTheWayGitHubDoes =
   !!byId('repeat') && !!byId('repeat-1') && !!byId('repeat-1-1')
 
-// 2. A Ukrainian link goes to its heading.
+// 2. A Ukrainian link goes to its heading, and says where the reader was.
 window.scrollTo(0, 0)
 await sleep(50)
 link('Мій розділ').click()
 await landed()
 results.ukrainianLinkLands = atTop(byId('мій-розділ'))
+results.jumpIsReported = jumps().length === 1
+results.jumpSaysWhereTheReaderWas = jumps()[0]?.from === 0
+results.jumpSaysWhereItIsGoing = Math.abs(jumps()[0]?.to - window.scrollY) < 2
 
 window.scrollTo(0, 0)
 await sleep(50)
@@ -169,19 +178,95 @@ link('Old spaces').click()
 await landed()
 results.oneHyphenLinkStillLands = atTop(byId('a--b'))
 
-// 4. A link to nothing moves nothing.
+// 4. A link to nothing moves nothing, and is not a step of history.
 window.scrollTo(0, 500)
 await sleep(50)
+const before = jumps().length
 link('Nowhere').click()
 await landed()
 results.missingTargetDoesNotMove = window.scrollY === 500
+results.missingTargetIsNotAJump = jumps().length === before
 
-// 5. The outline in the sidebar asks for the plain id, not an encoded one.
+// 5. Neither is following a link a second time, to where the page already is.
 window.scrollTo(0, 0)
 await sleep(50)
+link('Hello world').click()
+await landed()
+const beforeAgain = jumps().length
+link('Hello world').click()
+await landed()
+results.stayingPutIsNotAJump = atTop(byId('hello-world')) && jumps().length === beforeAgain
+
+// 6. The outline in the sidebar asks for the plain id, not an encoded one.
+window.scrollTo(0, 0)
+await sleep(50)
+const beforeOutline = jumps().length
 window.imark.scrollToAnchor('мій-розділ')
 await landed()
 results.outlineLands = atTop(byId('мій-розділ'))
+results.outlineIsAJump = jumps().length === beforeOutline + 1
+
+// 7. Back puts the page where it was told, and is not a jump of its own.
+const beforeBack = jumps().length
+window.imark.scrollToOffset(700)
+await landed()
+results.backLandsOnTheOffset = Math.abs(window.scrollY - 700) < 2
+results.backIsNotAJump = jumps().length === beforeBack
+
+// 7b. Back pressed while the glide is still under way lands where it was
+//     told. The old glide's failsafe used to outlive it and put the page back
+//     on the heading the link had been going to. Before the first frame is the
+//     one moment a test can hit every time.
+window.scrollTo(0, 0)
+await sleep(50)
+window.imark.scrollToAnchor('hello-world')
+window.imark.scrollToOffset(0)
+await sleep(800)
+results.quickBackIsNotOverruled = window.scrollY === 0
+
+// 8. The app is told where the page is.
+await sleep(300)
+const reports = sent.filter((m) => m.type === 'scrolled')
+results.restingPlaceIsReported =
+  reports.length > 0 && Math.abs(reports.pop().y - window.scrollY) < 2
+
+// 9. A link to a heading in another file keeps the heading apart from the
+//    file's name, and hands both to the app.
+const other = link('Another file')
+results.theFragmentStaysOutOfThePath =
+  other?.getAttribute('href').startsWith('imark://file/tmp/other.md#') === true
+other?.click()
+const opened = sent.filter((m) => m.type === 'openLocal').pop()
+results.theAppIsToldTheFile = opened?.path === '/tmp/other.md'
+results.andTheHeading = decodeURIComponent(opened?.anchor ?? '') === 'мій-розділ'
+
+// 10. Rendering keeps the place for a reload, and goes where it is told for
+//     another document, a step back, or a heading a link named.
+window.scrollTo(0, 1500)
+await sleep(50)
+await window.imark.render({ markdown: DOC, path: '/tmp/t.md', theme: 'dark' })
+await sleep(300)
+results.reloadKeepsThePlace = Math.abs(window.scrollY - 1500) < 2
+
+await window.imark.render({ markdown: DOC, path: '/tmp/other.md', theme: 'dark', scroll: 0 })
+await sleep(300)
+results.anotherDocumentStartsAtTheTop = window.scrollY === 0
+
+await window.imark.render({ markdown: DOC, path: '/tmp/t.md', theme: 'dark', scroll: 1200 })
+await sleep(300)
+results.aStepBackLandsWhereItLeft = Math.abs(window.scrollY - 1200) < 2
+
+await window.imark.render({
+  markdown: DOC, path: '/tmp/other.md', theme: 'dark', scroll: 0, anchor: opened?.anchor,
+})
+await sleep(300)
+results.aLinkedHeadingIsWhereItOpens = atTop(byId('мій-розділ'))
+
+await window.imark.render({
+  markdown: DOC, path: '/tmp/other.md', theme: 'dark', scroll: 0, anchor: 'no-such-heading',
+})
+await sleep(300)
+results.aMissingHeadingOpensAtTheTop = window.scrollY === 0
 
 return JSON.stringify(results)
 """
