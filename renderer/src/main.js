@@ -320,6 +320,12 @@ function mermaidTheme() {
 const drawnDiagrams = new Map()
 const DIAGRAMS_KEPT = 100
 
+// Which drawing each block on the page is showing, by the same key. Every
+// change in Settings sends the palette again, the one already on the page, and
+// putting the same drawings back in made WebKit lay the whole document out
+// again: 230 ms of the 400 that a step of the text size took on a long one.
+const showing = new WeakMap()
+
 function remember(key, svg) {
   // Put back at the end, so the diagrams in use are the last to go.
   drawnDiagrams.delete(key)
@@ -339,6 +345,10 @@ function placeDrawnDiagrams(root) {
   for (const block of root.querySelectorAll('.mermaid-block')) {
     const source = decodeURIComponent(block.dataset.graph || '')
     const key = `${palette}\n${source}`
+    if (showing.get(block) === key) {
+      placed.add(key)
+      continue
+    }
     const svg = drawnDiagrams.get(key)
     // Once per page: an SVG styles itself by its own id, and the same diagram
     // placed twice would put two of that id in one document.
@@ -350,6 +360,7 @@ function placeDrawnDiagrams(root) {
     remember(key, svg)
     block.innerHTML = svg
     block.classList.add('is-rendered')
+    showing.set(block, key)
   }
   return { themeVariables, undrawn }
 }
@@ -378,6 +389,7 @@ async function drawDiagrams({ themeVariables, undrawn }) {
       if (token !== drawing) return
       block.innerHTML = svg
       block.classList.add('is-rendered')
+      showing.set(block, key)
       remember(key, svg)
     } catch (error) {
       if (token !== drawing) return

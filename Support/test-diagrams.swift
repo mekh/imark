@@ -96,10 +96,14 @@ await settled()
 results.theFirstPaletteBringsBackTheFirstDrawings = JSON.stringify(ids()) === JSON.stringify(first)
 
 // 7. Every change in Settings sends the palette again, the one already on the
-//    page — a step of the text size, say — and that draws nothing.
+//    page — a step of the text size, say — and that draws nothing. Nor does it
+//    put the same drawings back in: that made WebKit lay out the whole page.
+const shown = [...document.querySelectorAll('.mermaid-block svg')]
 window.imark.setTheme('dark')
 await new Promise((r) => setTimeout(r, 1000))
 results.theSamePaletteAgainDrawsNothing = JSON.stringify(ids()) === JSON.stringify(first)
+const still = [...document.querySelectorAll('.mermaid-block svg')]
+results.theSamePaletteAgainLeavesThePageAlone = still.length === shown.length && still.every((svg, i) => svg === shown[i])
 
 // 8. The same diagram twice in one document is two drawings, never one id
 //    twice: an SVG styles itself by its id.
