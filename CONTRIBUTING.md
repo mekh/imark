@@ -37,6 +37,7 @@ swift Support/test-plus.swift
 swift Support/test-text-size.swift
 swift Support/test-pieces.swift
 swift Support/test-anchors.swift
+swift Support/test-diagrams.swift
 ```
 
 The rest of the suites, the ones a release runs:
