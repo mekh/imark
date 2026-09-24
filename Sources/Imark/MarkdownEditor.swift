@@ -116,6 +116,27 @@ final class MarkdownEditorView: NSView {
         window?.makeFirstResponder(textView)
     }
 
+    /// Scrolls line `line` of the file, counted from zero, to the top of the view
+    /// and puts the caret at its start. The caret has to go too: left on the
+    /// first line, the first keystroke scrolled the buffer back up and typed there.
+    func reveal(line: Int) {
+        let source = textView.string as NSString
+        guard source.length > 0 else { return }
+        // Counted the way the gutter numbers them, so a `\r\n` is one break.
+        var location = 0
+        for _ in 0..<max(0, line) where location < source.length {
+            location = NSMaxRange(source.lineRange(for: NSRange(location: location, length: 0)))
+        }
+        textView.setSelectedRange(NSRange(location: location, length: 0))
+        guard let layout = textView.layoutManager else { return }
+        let glyph = layout.glyphIndexForCharacter(at: min(location, source.length - 1))
+        let fragment = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+        // The line's top edge on the view's top edge, so no half line peeks out
+        // above it. The first line keeps the margin it opens with.
+        let top = fragment.minY > 0 ? fragment.minY + textView.textContainerOrigin.y : 0
+        textView.scroll(NSPoint(x: 0, y: top))
+    }
+
     /// Typing is undone by the text view's own stack, not by the app's — the app's
     /// undo puts whole documents back, which is not what ⌘Z means while typing.
     var canUndo: Bool { textView.undoManager?.canUndo ?? false }
