@@ -24,7 +24,7 @@ check "the app can find the embedded framework" sh -c \
 	"otool -l '$APP/Contents/MacOS/Imark' | grep -q '@loader_path/../Frameworks'"
 check "the feed has one stable address" sh -c \
 	"test \"\$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' '$INFO')\" = \
-	'https://github.com/migsilva89/imark/releases/latest/download/appcast.xml'"
+	'https://raw.githubusercontent.com/mekh/homebrew-tap/main/appcasts/imark.xml'"
 check "updates require the public signing key" sh -c \
 	"test -n \"\$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' '$INFO')\""
 check "the archive is verified before extraction" sh -c \

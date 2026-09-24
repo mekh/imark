@@ -3,6 +3,30 @@
 How a `.dmg` somebody else can open gets made. Everything happens on one Mac —
 there is no CI, and signing keys never enter this repository.
 
+## This fork's builds
+
+Builds of the `integration` branch ship through the Homebrew tap
+[mekh/homebrew-tap](https://github.com/mekh/homebrew-tap) as `mekh/tap/imark`,
+and update themselves from that tap rather than from the upstream releases:
+`SUFeedURL` in `Support/Imark-Info.plist` is `appcasts/imark.xml` in the tap, and
+`SUPublicEDKey` is the public half of the key under the `mekh-imark` account in
+the login keychain. `release.sh` and `Support/tap.sh` publish to the upstream
+author's repositories and are not used here.
+
+1. Build a Developer ID–signed app, then the notarised `.dmg`, and publish the
+   release `imark-v<version>` in the tap with it (the `dmg-release` routine).
+2. Write the signed feed for that release into the tap's clone, then commit and
+   push it there:
+
+   ```bash
+   Support/fork-appcast.sh <path to Imark-<version>.dmg>
+   ```
+
+Back the key up once (`.build/artifacts/sparkle/Sparkle/bin/generate_keys
+--account mekh-imark -x <file>`, kept somewhere safe). Without it, installed
+copies reject every later update. Everything below describes the upstream
+release.
+
 ## Once, on the machine that will build
 
 ```bash
