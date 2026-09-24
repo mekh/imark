@@ -103,6 +103,7 @@ if [ "${1:-}" != "--force" ]; then
 			Support/test-history.swift -o /tmp/imark-release-history/run >/dev/null 2>&1 \
 		&& /tmp/imark-release-history/run >/dev/null || die "the back and forward tests failed"
 	swift Support/test-plus.swift >/dev/null 2>&1 || die "the margin button tests failed"
+	swift Support/test-text-size.swift >/dev/null 2>&1 || die "the text size tests failed"
 	swift Support/test-pieces.swift >/dev/null 2>&1 || die "the list and table note tests failed"
 	swift Support/test-front-matter.swift >/dev/null 2>&1 || die "the front matter tests failed"
 	swift Support/test-anchors.swift >/dev/null 2>&1 || die "the heading link tests failed"

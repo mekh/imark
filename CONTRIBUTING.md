@@ -34,6 +34,7 @@ node Support/test-notes.mjs
 node Support/test-export.mjs
 node Support/test-math.mjs
 swift Support/test-plus.swift
+swift Support/test-text-size.swift
 swift Support/test-pieces.swift
 swift Support/test-anchors.swift
 ```
