@@ -330,11 +330,15 @@ h1, h2, h3, h4, h5, h6 {
   scroll-margin-top: calc(var(--step) * 6);
 }
 
-h1 { font-size: 32px; letter-spacing: -0.02em; }
-h2 { font-size: 24px; }
-h3 { font-size: 19px; }
-h4 { font-size: 16px; }
-h5, h6 { font-size: 15px; color: var(--secondary); }
+/* Everything in the document is sized off the reader's text size, written as
+   its size at the default 16px. In pixels it stayed put while ⌘+ grew the
+   paragraphs: headings, tables and code kept their size, and from 20pt on an
+   H3 came out smaller than the text under it. */
+h1 { font-size: calc(var(--size-body) * 32 / 16); letter-spacing: -0.02em; }
+h2 { font-size: calc(var(--size-body) * 24 / 16); }
+h3 { font-size: calc(var(--size-body) * 19 / 16); }
+h4 { font-size: var(--size-body); }
+h5, h6 { font-size: calc(var(--size-body) * 15 / 16); color: var(--secondary); }
 
 h1:first-child, h2:first-child { margin-top: 0; }
 
@@ -421,7 +425,7 @@ blockquote > :last-child { margin-bottom: 0; }
 table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 14.5px;
+  font-size: calc(var(--size-body) * 14.5 / 16);
   display: block;
   overflow-x: auto;
 }
@@ -436,7 +440,7 @@ th, td {
 th {
   font-weight: 600;
   color: var(--secondary);
-  font-size: 12px;
+  font-size: calc(var(--size-body) * 12 / 16);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   border-bottom-width: 1.5px;
@@ -469,7 +473,7 @@ pre {
 pre code {
   background: none;
   padding: 0;
-  font-size: 13.5px;
+  font-size: calc(var(--size-body) * 13.5 / 16);
   line-height: 1.55;
 }
 
@@ -483,7 +487,7 @@ pre code {
   border-radius: var(--radius);
   overflow-x: auto;
   font-family: var(--font-mono);
-  font-size: 13.5px;
+  font-size: calc(var(--size-body) * 13.5 / 16);
   line-height: 1.55;
   padding: calc(var(--step) * 2) 0;
 }
@@ -576,7 +580,7 @@ pre code {
 }
 
 .fm-title {
-  font-size: 34px;
+  font-size: calc(var(--size-body) * 34 / 16);
   margin: 0;
   letter-spacing: -0.022em;
 }
@@ -596,7 +600,7 @@ pre code {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 999px;
-  font-size: 12.5px;
+  font-size: calc(var(--size-body) * 12.5 / 16);
 }
 
 .fm-row dt { color: var(--secondary); }
@@ -625,14 +629,14 @@ pre code {
   border: 1px dashed var(--border);
   border-radius: var(--radius);
   color: var(--secondary);
-  font-size: 13px;
+  font-size: calc(var(--size-body) * 13 / 16);
 }
 
 .diagram-error pre {
   background: none;
   border: 0;
   padding: calc(var(--step) * 2) 0 0;
-  font-size: 12px;
+  font-size: calc(var(--size-body) * 12 / 16);
 }
 
 /* ----------------------------------------------------------------- media */
@@ -659,7 +663,7 @@ img[data-blocked] {
   margin-top: calc(var(--step) * 12);
   padding-top: calc(var(--step) * 4);
   border-top: 1px solid var(--border);
-  font-size: 14px;
+  font-size: calc(var(--size-body) * 14 / 16);
   color: var(--secondary);
 }
 
