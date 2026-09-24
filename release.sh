@@ -109,6 +109,7 @@ if [ "${1:-}" != "--force" ]; then
 	swift Support/test-anchors.swift >/dev/null 2>&1 || die "the heading link tests failed"
 	swift Support/test-diagrams.swift >/dev/null 2>&1 || die "the diagram tests failed"
 	swift Support/test-type-scale.swift >/dev/null 2>&1 || die "the document text size tests failed"
+	swift Support/test-diagram-viewer.swift >/dev/null 2>&1 || die "the diagram viewer tests failed"
 	Support/test-review.sh >/dev/null 2>&1 || die "the review round trip tests failed"
 	swiftc -parse-as-library -I "$TEST_BIN" -I "$TEST_BIN/Modules" -F "$TEST_BIN" \
 			-Xlinker -rpath -Xlinker "$TEST_BIN" \

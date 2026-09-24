@@ -493,6 +493,207 @@ async function drawDiagrams({ themeVariables, undrawn }) {
   }
 }
 
+/* -------------------------------------------------------- diagram viewer */
+
+// A diagram opened over the page, to be looked at closer than the column
+// allows: one squeezed into the column can have labels too small to read at
+// any text size. The drawing itself goes into the viewer and comes back, not a
+// copy of it: an SVG styles itself by its own id, and a copy would put the
+// same id in the document twice. Nothing is drawn again.
+let viewer = null
+// The drag that pans the view, and whether the last one moved: the click that
+// ends a drag is not a click beside the diagram.
+let panning = null
+let panned = false
+let pinchFrom = 1
+
+const ZOOM_STEP = 1.25
+const ZOOM_MIN = 0.1
+const ZOOM_MAX = 8
+// Opened no bigger than this, however much room there is: a small diagram
+// blown up to fill the window is harder to take in, not easier.
+const ZOOM_OPEN_MAX = 2
+
+function openDiagram(block) {
+  const svg = block.querySelector('svg')
+  if (!svg) return
+  closeDiagram()
+  const box = svg.getBoundingClientRect()
+  // Mermaid's own pixels, the ones its labels are set in: what 100% means.
+  const drawn = svg.viewBox?.baseVal
+  const width = drawn?.width || box.width
+  const height = drawn?.height || box.height
+
+  const element = document.createElement('div')
+  element.className = 'diagram-viewer'
+  element.setAttribute('role', 'dialog')
+  element.setAttribute('aria-modal', 'true')
+  element.setAttribute('aria-label', 'Diagram')
+  element.tabIndex = -1
+  element.innerHTML = `<div class="diagram-stage"></div>
+    <div class="diagram-controls">
+      <button type="button" data-action="out" aria-label="Zoom Out">−</button>
+      <button type="button" data-action="actual" class="diagram-zoom" aria-label="Actual Size"></button>
+      <button type="button" data-action="in" aria-label="Zoom In">+</button>
+      <button type="button" data-action="fit">Fit</button>
+      <button type="button" data-action="close" aria-label="Close">×</button>
+    </div>`
+  listenToViewer(element)
+
+  // The block holds the drawing's room while it is away, so the page under
+  // the viewer does not move and the drawing has its place to come back to.
+  block.style.height = `${block.offsetHeight}px`
+  viewer = { block, svg, style: svg.getAttribute('style'), width, height, zoom: 1, element }
+  element.querySelector('.diagram-stage').append(svg)
+  svg.style.maxWidth = 'none'
+  document.body.append(element)
+  element.focus({ preventScroll: true })
+
+  // As big as on the page at least, as big as fits the window if that is
+  // bigger, and no more than ZOOM_OPEN_MAX. From the top, and centred across.
+  setZoom(Math.max(box.width / width, Math.min(fitZoom(), ZOOM_OPEN_MAX)))
+  element.scrollTop = 0
+  element.scrollLeft = (element.scrollWidth - element.clientWidth) / 2
+}
+
+function closeDiagram() {
+  if (!viewer) return
+  const { block, svg, style, element } = viewer
+  viewer = null
+  panning = null
+  element.remove()
+  if (style === null) svg.removeAttribute('style')
+  else svg.setAttribute('style', style)
+  // Only into the room it left. A block drawn again while the viewer was open,
+  // in another palette, already holds its new drawing, and the old one next
+  // to it would be the same diagram twice.
+  if (!block.childElementCount) block.append(svg)
+  block.style.height = ''
+}
+
+// The zoom that shows the whole diagram inside the window.
+function fitZoom() {
+  const { element, width, height } = viewer
+  const stage = getComputedStyle(element.querySelector('.diagram-stage'))
+  const across = element.clientWidth - parseFloat(stage.paddingLeft) - parseFloat(stage.paddingRight)
+  const down = element.clientHeight - parseFloat(stage.paddingTop) - parseFloat(stage.paddingBottom)
+  return Math.min(across / width, down / height)
+}
+
+function setZoom(zoom) {
+  const { element, svg, width, height } = viewer
+  viewer.zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom))
+  svg.style.width = `${width * viewer.zoom}px`
+  svg.style.height = `${height * viewer.zoom}px`
+  element.querySelector('.diagram-zoom').textContent = `${Math.round(viewer.zoom * 100)}%`
+}
+
+// Keeps the point under the pointer, or the middle of the window without one,
+// where it is: zooming goes into what is being looked at.
+function zoomTo(zoom, at) {
+  const { element, svg } = viewer
+  const x = at?.x ?? element.clientWidth / 2
+  const y = at?.y ?? element.clientHeight / 2
+  const before = svg.getBoundingClientRect()
+  const across = (x - before.left) / before.width
+  const down = (y - before.top) / before.height
+  setZoom(zoom)
+  const after = svg.getBoundingClientRect()
+  element.scrollLeft += after.left + across * after.width - x
+  element.scrollTop += after.top + down * after.height - y
+}
+
+function listenToViewer(element) {
+  element.addEventListener('click', (event) => {
+    const action = event.target.closest('[data-action]')?.dataset.action
+    if (action === 'in') return zoomTo(viewer.zoom * ZOOM_STEP)
+    if (action === 'out') return zoomTo(viewer.zoom / ZOOM_STEP)
+    if (action === 'actual') return zoomTo(1)
+    if (action === 'fit') return zoomTo(fitZoom())
+    if (action === 'close') return closeDiagram()
+    if (panned || event.target.closest('svg, .diagram-controls')) return
+    closeDiagram()
+  })
+
+  element.addEventListener('pointerdown', (event) => {
+    panned = false
+    if (event.button !== 0 || event.target.closest('.diagram-controls')) return
+    panning = { id: event.pointerId, x: event.clientX, y: event.clientY, left: element.scrollLeft, top: element.scrollTop }
+  })
+  element.addEventListener('pointermove', (event) => {
+    if (!panning) return
+    const dx = event.clientX - panning.x
+    const dy = event.clientY - panning.y
+    if (!panned && Math.hypot(dx, dy) < 4) return
+    // Captured only once it is a drag: a captured click goes to the viewer
+    // itself, and a click on the diagram would read as one beside it.
+    if (!panned) element.setPointerCapture(panning.id)
+    panned = true
+    element.classList.add('is-panning')
+    element.scrollLeft = panning.left - dx
+    element.scrollTop = panning.top - dy
+  })
+  const stopPanning = () => {
+    panning = null
+    element.classList.remove('is-panning')
+  }
+  element.addEventListener('pointerup', stopPanning)
+  element.addEventListener('pointercancel', stopPanning)
+
+  // A pinch on the trackpad arrives as WebKit's gesture events, and as a wheel
+  // with the control key where those are not sent. A plain wheel scrolls.
+  element.addEventListener('gesturestart', (event) => {
+    event.preventDefault()
+    pinchFrom = viewer.zoom
+  })
+  element.addEventListener('gesturechange', (event) => {
+    event.preventDefault()
+    zoomTo(pinchFrom * event.scale, { x: event.clientX, y: event.clientY })
+  })
+  element.addEventListener(
+    'wheel',
+    (event) => {
+      if (!event.ctrlKey) return
+      event.preventDefault()
+      zoomTo(viewer.zoom * Math.exp(-event.deltaY / 100), { x: event.clientX, y: event.clientY })
+    },
+    { passive: false },
+  )
+}
+
+function setUpDiagramViewer() {
+  document.addEventListener('click', (event) => {
+    const block = event.target.closest?.('.mermaid-block.is-rendered')
+    if (!block || viewer || event.target.closest('a')) return
+    // Not in Quick Look: the panel has no room to open anything in, and its
+    // keys are the Finder's.
+    if (document.documentElement.dataset.preview === 'true') return
+    // Words picked out of a label are a selection, not a click.
+    if (!window.getSelection().isCollapsed) return
+    openDiagram(block)
+  })
+
+  // In the capture phase, ahead of the page's other keys. ⌘+, ⌘− and ⌘0 as
+  // well, which the page is offered before the menu: taken here, they zoom the
+  // diagram rather than change the text size behind it.
+  document.addEventListener(
+    'keydown',
+    (event) => {
+      if (!viewer) return
+      if (event.key === 'Escape') closeDiagram()
+      else if (event.key === '+' || event.key === '=') zoomTo(viewer.zoom * ZOOM_STEP)
+      else if (event.key === '-') zoomTo(viewer.zoom / ZOOM_STEP)
+      else if (event.key === '0') zoomTo(fitZoom())
+      else return
+      event.preventDefault()
+      event.stopPropagation()
+    },
+    true,
+  )
+
+  window.addEventListener('beforeprint', closeDiagram)
+}
+
 /* ------------------------------------------------------------------- toc */
 
 function buildToc(root) {
@@ -963,6 +1164,8 @@ let lastSource = ''
 
 async function render({ markdown, path, theme, preview, rail, frontMatter, commentingControls, scroll, anchor }) {
   const token = ++renderToken
+  // The drawing in it goes back to its block before the blocks are replaced.
+  closeDiagram()
   lastSource = markdown ?? ''
   docDir = path ? path.slice(0, path.lastIndexOf('/')) || '/' : '/'
   slugCounts.clear()
@@ -1672,6 +1875,7 @@ window.imark = {
 
 installCommentHandlers()
 setUpBlockPlus()
+setUpDiagramViewer()
 
 // KaTeX is imported for its side-effect-free API; keep a reference so the
 // bundler cannot tree-shake the font-bearing CSS away.
