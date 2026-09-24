@@ -399,6 +399,42 @@ function placeDrawnDiagrams(root) {
 
 let drawing = 0
 
+// Measured from under the toolbar, where the visible page starts.
+const visibleTop = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top-inset')) || 0
+
+// How far a block is from the part of the page the reader can see, in pixels;
+// nothing if they can see any of it.
+function distanceFromView(block) {
+  const box = block.getBoundingClientRect()
+  const top = visibleTop()
+  if (box.bottom < top) return top - box.bottom
+  if (box.top > window.innerHeight) return box.top - window.innerHeight
+  return 0
+}
+
+// A drawing that lands above the line being read pushes everything under it
+// down by its height, the reader's line with it. The page is moved back by as
+// much, so what the reader is looking at stays where it is.
+function keepingPlaceAbove(block, change) {
+  const before = block.getBoundingClientRect()
+  change()
+  if (before.top >= visibleTop()) return
+  const by = block.getBoundingClientRect().bottom - before.bottom
+  if (Math.abs(by) >= 1) window.scrollBy(0, by)
+}
+
+// A task of its own between two drawings, so that the page is painted and a
+// scroll is answered in between: mermaid takes about a fifth of a second a
+// diagram, and eight of them in a row held the page still for a second and a
+// half. Not a timer: WebKit holds timers back in a window it thinks nobody is
+// looking at.
+const nextTask = () =>
+  new Promise((resolve) => {
+    const channel = new MessageChannel()
+    channel.port1.onmessage = () => resolve()
+    channel.port2.postMessage(null)
+  })
+
 async function drawDiagrams({ themeVariables, undrawn }) {
   // Counted even with nothing to draw: a document whose diagrams all came back
   // still takes the page from one whose diagrams are being drawn.
@@ -411,7 +447,24 @@ async function drawDiagrams({ themeVariables, undrawn }) {
     securityLevel: 'strict',
     fontFamily: 'inherit',
   })
-  for (const { block, source, key } of undrawn) {
+  const waiting = [...undrawn]
+  while (waiting.length) {
+    // The one nearest what the reader can see goes next, asked again after
+    // every drawing, since the reader may have scrolled. In document order a
+    // long document drew every diagram above the reader before the one in
+    // front of them, and a change of theme repainted the one being looked at
+    // last. Of two as near, the first in the document: the ones in view go top
+    // down.
+    let next = 0
+    let nearest = Infinity
+    waiting.forEach(({ block }, index) => {
+      const distance = distanceFromView(block)
+      if (distance < nearest) {
+        nearest = distance
+        next = index
+      }
+    })
+    const [{ block, source, key }] = waiting.splice(next, 1)
     try {
       const svg = sizedByText((await mermaid.render(`mermaid-${mermaidSeq++}`, source)).svg)
       // Another document, or this one in another palette, has started
@@ -419,17 +472,24 @@ async function drawDiagrams({ themeVariables, undrawn }) {
       // that drawing has just changed them, so this SVG may be half in the
       // wrong colours — and kept, it would come back in them every time.
       if (token !== drawing) return
-      block.innerHTML = svg
-      block.classList.add('is-rendered')
+      keepingPlaceAbove(block, () => {
+        block.innerHTML = svg
+        block.classList.add('is-rendered')
+      })
       showing.set(block, key)
       remember(key, svg)
     } catch (error) {
       if (token !== drawing) return
-      block.classList.add('is-error')
-      block.innerHTML = `<div class="diagram-error"><strong>Invalid diagram</strong><pre>${escapeHtml(
-        error?.message ?? error,
-      )}</pre></div>`
+      keepingPlaceAbove(block, () => {
+        block.classList.add('is-error')
+        block.innerHTML = `<div class="diagram-error"><strong>Invalid diagram</strong><pre>${escapeHtml(
+          error?.message ?? error,
+        )}</pre></div>`
+      })
     }
+    if (!waiting.length) return
+    await nextTask()
+    if (token !== drawing) return
   }
 }
 
