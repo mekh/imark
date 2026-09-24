@@ -218,7 +218,13 @@ const patchAttr = (rules, rule, attr) => {
     if (i >= 0) {
       const value = token.attrs[i][1]
       if (!isExternal(value) && !value.startsWith('#')) {
-        token.attrs[i][1] = fileURL(resolveLocal(value))
+        // The fragment is not part of the file's name. Resolved along with it,
+        // it was encoded into the path — `other.md%23section` — and named a
+        // file that is not there.
+        const hash = value.indexOf('#')
+        const file = hash < 0 ? value : value.slice(0, hash)
+        const fragment = hash < 0 ? '' : value.slice(hash)
+        token.attrs[i][1] = fileURL(resolveLocal(file)) + fragment
       }
     }
     return original
@@ -368,6 +374,17 @@ function buildToc(root) {
 // travelled, so a jump across a long document takes one or two seconds. This
 // starts at once and always lands in about a third of a second.
 let scrollAnimation = 0
+let glideFailsafe = 0
+// Where a glide under way is going. That, not the frame it happens to be on, is
+// where the page is for anybody asking — Back pressed halfway through a jump
+// has to leave the heading for Forward, not a point on the way to it.
+let glideTarget = null
+
+const restingAt = () => glideTarget ?? window.scrollY
+
+// Where the page can actually come to rest for a given top: not above the
+// first line, and not so far down that the last one leaves the window.
+const reachable = (top) => Math.max(0, Math.min(top, document.body.scrollHeight - window.innerHeight))
 
 // How much of the top of the page the toolbar stands on, as Swift last said.
 const topInset = () =>
@@ -378,13 +395,24 @@ const topInset = () =>
 // scrolling back to read what the jump had been to.
 const headingTop = (el) => el.getBoundingClientRect().top + window.scrollY - topInset() - 24
 
-function glideTo(top) {
+// The failsafe goes with the frames. Cancelling only the frames left it armed,
+// and it landed the page on the old target after a newer glide had already
+// arrived somewhere else — a link followed by a quick Back ended up at the
+// link's heading instead of where the reader had been.
+function stopGlide() {
   cancelAnimationFrame(scrollAnimation)
+  clearTimeout(glideFailsafe)
+  glideTarget = null
+}
+
+function glideTo(top) {
+  stopGlide()
 
   const from = window.scrollY
-  const to = Math.max(0, Math.min(top, document.body.scrollHeight - window.innerHeight))
+  const to = reachable(top)
   const delta = to - from
   if (Math.abs(delta) < 2) return window.scrollTo(0, to)
+  glideTarget = to
 
   // Long jumps get a little longer, but never much: 260ms to 420ms.
   const duration = Math.min(420, 260 + Math.abs(delta) * 0.06)
@@ -394,8 +422,9 @@ function glideTo(top) {
 
   // If requestAnimationFrame is not running — WebKit stops it whenever it
   // decides the view is not visible — land on the target anyway.
-  const failsafe = setTimeout(() => {
+  glideFailsafe = setTimeout(() => {
     cancelAnimationFrame(scrollAnimation)
+    glideTarget = null
     window.scrollTo(0, to)
   }, duration + 120)
 
@@ -405,7 +434,8 @@ function glideTo(top) {
     if (t < 1) {
       scrollAnimation = requestAnimationFrame(step)
     } else {
-      clearTimeout(failsafe)
+      clearTimeout(glideFailsafe)
+      glideTarget = null
     }
   }
   scrollAnimation = requestAnimationFrame(step)
@@ -699,7 +729,7 @@ function attachRail(rail) {
     // Dragging tracks the pointer one to one; a click gets the glide.
     if (smooth) glideTo(top)
     else {
-      cancelAnimationFrame(scrollAnimation)
+      stopGlide()
       window.scrollTo(0, top)
     }
     railScrollIndex = index
@@ -715,7 +745,7 @@ function attachRail(rail) {
     // tick check below, which exists to skip repainting the funnel and would
     // otherwise make the scroll steppy again for a different reason.
     if (scrubbing) {
-      cancelAnimationFrame(scrollAnimation)
+      stopGlide()
       window.scrollTo(0, scrollAt(clientY))
     }
     const index = nearest(clientY)
@@ -791,7 +821,7 @@ let renderToken = 0
 // Kept so comments can be exported without asking Swift to hand the file back.
 let lastSource = ''
 
-async function render({ markdown, path, theme, preview, rail, frontMatter, commentingControls }) {
+async function render({ markdown, path, theme, preview, rail, frontMatter, commentingControls, scroll, anchor }) {
   const token = ++renderToken
   lastSource = markdown ?? ''
   docDir = path ? path.slice(0, path.lastIndexOf('/')) || '/' : '/'
@@ -814,7 +844,17 @@ async function render({ markdown, path, theme, preview, rail, frontMatter, comme
   const { data, body, offset } = splitFrontMatter(markdown ?? '')
   lineOffset = offset
   const root = content()
-  const previousScroll = window.scrollY
+  // A reload keeps the place. Another document, or a step Back to one, says
+  // where to land instead: without it a file opened from a link started as far
+  // down as the one it was opened from. A link to a heading in it names the
+  // heading, and the page lands there if it has one.
+  const kept = window.scrollY
+  const moving = typeof scroll === 'number' || !!anchor
+  const landing = () => {
+    const heading = anchor ? findAnchor(anchor) : null
+    if (heading) return headingTop(heading)
+    return typeof scroll === 'number' ? scroll : kept
+  }
 
   // Taken out before parsing so the blocks can never show up as document text,
   // and blanked rather than deleted so the line map stays honest.
@@ -824,6 +864,13 @@ async function render({ markdown, path, theme, preview, rail, frontMatter, comme
     ? renderFrontMatter(data) + md.render(clean)
     : `${renderFrontMatter(data)}<p class="empty">This file is empty</p>`
   if (token !== renderToken) return
+  // Now as well as at the end, so the new document does not sit at the old
+  // one's place for as long as its diagrams take — and a glide still running
+  // in the old one does not carry on in this one.
+  if (moving) {
+    stopGlide()
+    window.scrollTo(0, landing())
+  }
 
   const notes = attachComments(root, comments)
   restoreNoteState()
@@ -850,14 +897,24 @@ async function render({ markdown, path, theme, preview, rail, frontMatter, comme
   const targets = [...root.querySelectorAll('a.wikilink')].map((a) => a.dataset.wikilink)
   if (targets.length) bridge({ type: 'wikilinks', targets: [...new Set(targets)] })
 
-  window.scrollTo(0, Math.min(previousScroll, document.body.scrollHeight))
+  window.scrollTo(0, Math.min(landing(), document.body.scrollHeight))
   updateActiveHeading()
+  reportPlace()
   bridge({ type: 'rendered' })
 }
 
 /* --------------------------------------------------------- scroll tracking */
 
 let scrollQueued = false
+
+// Where the page is, for the app to remember: leaving a place is what puts it
+// in the history, and the app cannot ask the page on the way out. Told on every
+// scroll event, which WebKit already sends at most once a frame — waiting for
+// the scrolling to stop was a timer, and timers are held back in a window
+// WebKit thinks nobody is looking at.
+function reportPlace() {
+  bridge({ type: 'scrolled', y: restingAt() })
+}
 
 function updateActiveHeading() {
   if (!activeHeadings.length) return
@@ -885,6 +942,7 @@ function updateActiveHeading() {
 window.addEventListener(
   'scroll',
   () => {
+    reportPlace()
     if (scrollQueued) return
     scrollQueued = true
     requestAnimationFrame(() => {
@@ -1209,9 +1267,12 @@ document.addEventListener('click', (event) => {
   const anchorEl = event.target.closest('a')
   if (!anchorEl) return
 
+  // Leaving for another file: where the page is goes first, in the same
+  // breath, so Back has it even if no scroll has been told about yet.
   const wiki = anchorEl.dataset.wikilink
   if (wiki) {
     event.preventDefault()
+    reportPlace()
     bridge({ type: 'openWiki', target: wiki })
     return
   }
@@ -1225,8 +1286,13 @@ document.addEventListener('click', (event) => {
 
   event.preventDefault()
   if (href.startsWith('imark://file')) {
-    const path = decodeURIComponent(href.replace('imark://file', ''))
-    bridge({ type: 'openLocal', path })
+    // Every `#` in the path was encoded on the way in, so the first one left
+    // is where the heading's name starts.
+    const hash = href.indexOf('#')
+    const path = decodeURIComponent((hash < 0 ? href : href.slice(0, hash)).replace('imark://file', ''))
+    const anchor = hash < 0 ? '' : href.slice(hash + 1)
+    reportPlace()
+    bridge({ type: 'openLocal', path, anchor })
   } else if (isExternal(href)) {
     bridge({ type: 'openExternal', url: href })
   }
@@ -1235,7 +1301,14 @@ document.addEventListener('click', (event) => {
 function scrollToAnchor(fragment) {
   const target = findAnchor(fragment)
   if (!target) return
-  glideTo(headingTop(target))
+  const top = headingTop(target)
+  // Where the reader was, so Back can bring them there, and where they are
+  // going, so a Back pressed mid-glide knows what Forward returns to. A link to
+  // the place the page is already at moves nothing and is not a step at all.
+  const from = restingAt()
+  const to = reachable(top)
+  if (Math.abs(to - from) >= 2) bridge({ type: 'jump', from, to })
+  glideTo(top)
 }
 
 /// The element a `#fragment` names. A link's href arrives percent-encoded —
@@ -1342,6 +1415,11 @@ function report() {
 window.imark = {
   render,
   scrollToAnchor,
+  /// Back and Forward inside one document. The place is where the reader was,
+  /// not a heading, and going there is not a jump of its own.
+  scrollToOffset(y) {
+    glideTo(y)
+  },
   setTheme(theme) {
     document.documentElement.dataset.theme = theme
     const blocks = document.querySelectorAll('.mermaid-block')
