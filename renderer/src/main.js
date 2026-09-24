@@ -482,7 +482,7 @@ function listenToViewer(element) {
   element.addEventListener('pointercancel', stopPanning)
 
   // A pinch on the trackpad arrives as WebKit's gesture events, and as a wheel
-  // with the control key where those are not sent. A plain wheel scrolls.
+  // with the control key where those are not sent.
   element.addEventListener('gesturestart', (event) => {
     event.preventDefault()
     pinchFrom = viewer.zoom
@@ -494,12 +494,41 @@ function listenToViewer(element) {
   element.addEventListener(
     'wheel',
     (event) => {
-      if (!event.ctrlKey) return
       event.preventDefault()
-      zoomTo(viewer.zoom * Math.exp(-event.deltaY / 100), { x: event.clientX, y: event.clientY })
+      if (event.ctrlKey) return zoomTo(viewer.zoom * Math.exp(-event.deltaY / 100), { x: event.clientX, y: event.clientY })
+      // Scrolled here rather than by WebKit, which passed a scroll the viewer
+      // had no room for on to the page behind it, `overscroll-behavior` or
+      // not: past the end of the diagram, or all of it when the diagram fit.
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? element.clientHeight : 1
+      element.scrollLeft += event.deltaX * unit
+      element.scrollTop += event.deltaY * unit
     },
     { passive: false },
   )
+}
+
+// The keys that scroll, taken for the same reason as the wheel: at the end of
+// the diagram they went on to scroll the page behind it.
+function scrollViewerByKey(event) {
+  const { element } = viewer
+  const page = element.clientHeight * 0.85
+  const end = element.scrollHeight
+  const by = event.metaKey
+    ? { ArrowUp: [0, -end], ArrowDown: [0, end] }[event.key]
+    : {
+        ArrowUp: [0, -40],
+        ArrowDown: [0, 40],
+        ArrowLeft: [-40, 0],
+        ArrowRight: [40, 0],
+        PageUp: [0, -page],
+        PageDown: [0, page],
+        ' ': [0, event.shiftKey ? -page : page],
+        Home: [0, -end],
+        End: [0, end],
+      }[event.key]
+  if (!by) return false
+  element.scrollBy({ left: by[0], top: by[1], behavior: 'smooth' })
+  return true
 }
 
 function setUpDiagramViewer() {
@@ -525,7 +554,7 @@ function setUpDiagramViewer() {
       else if (event.key === '+' || event.key === '=') zoomTo(viewer.zoom * ZOOM_STEP)
       else if (event.key === '-') zoomTo(viewer.zoom / ZOOM_STEP)
       else if (event.key === '0') zoomTo(fitZoom())
-      else return
+      else if (!scrollViewerByKey(event)) return
       event.preventDefault()
       event.stopPropagation()
     },
