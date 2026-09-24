@@ -30,6 +30,7 @@ node Support/test-export.mjs
 node Support/test-math.mjs
 swift Support/test-plus.swift
 swift Support/test-pieces.swift
+swift Support/test-diagrams.swift
 ```
 
 The rest of the suites, the ones a release runs:
