@@ -119,7 +119,29 @@ click(svg)
 viewer()?.querySelector('[data-action="close"]').click()
 results.theCloseButtonClosesIt = !viewer() && block.contains(svg)
 
-// 9. Words picked out of a label are a selection, and open nothing.
+// 9. A scroll over the viewer is the viewer's and never the page's, whether
+//    the diagram fits in the window or not: WebKit passed one the viewer had
+//    no room for on to the page behind it.
+const wheel = (target, deltaY, deltaX = 0) => {
+  const event = new WheelEvent('wheel', { deltaX, deltaY, bubbles: true, cancelable: true })
+  target.dispatchEvent(event)
+  return event
+}
+click(svg)
+const pageAt = window.scrollY
+results.aScrollOverADiagramThatFitsIsTaken = wheel(svg, 200).defaultPrevented && window.scrollY === pageAt
+// Zoomed in, the diagram, which runs across, is wider than the window.
+for (let i = 0; i < 6; i += 1) press('+')
+const view = viewer()
+view.scrollLeft = 0
+const scrolledBy = wheel(svg, 0, 100)
+results.aScrollOverABigDiagramScrollsTheViewer = scrolledBy.defaultPrevented && view.scrollLeft === 100
+view.scrollLeft = view.scrollWidth
+results.aScrollPastItsEndIsTakenToo = wheel(view, 100, 100).defaultPrevented && window.scrollY === pageAt
+results.soAreTheKeysThatScroll = ['ArrowDown', 'PageDown', ' ', 'End'].every((key) => press(key).defaultPrevented)
+press('Escape')
+
+// 10. Words picked out of a label are a selection, and open nothing.
 const label = [...svg.querySelectorAll('span, text')].find((node) => node.textContent.includes('Start'))
 const range = document.createRange()
 range.selectNodeContents(label)
@@ -129,13 +151,13 @@ click(label)
 results.aSelectionInALabelOpensNothing = !viewer()
 window.getSelection().removeAllRanges()
 
-// 10. A render — the file saved, another document — closes it first.
+// 11. A render — the file saved, another document — closes it first.
 click(svg)
 const rendering = render(doc('Saved'))
 results.aRenderClosesIt = !viewer()
 await rendering
 
-// 11. The diagram drawn again while it is open, in another palette, is not
+// 12. The diagram drawn again while it is open, in another palette, is not
 //     joined by the old drawing when it closes: that would be the same
 //     diagram twice.
 const again = document.querySelector('.mermaid-block')
@@ -147,7 +169,7 @@ press('Escape')
 results.aDiagramDrawnAgainWhileOpenIsNotDoubled =
   !viewer() && again.querySelectorAll('svg').length === 1 && !again.contains(old)
 
-// 12. Quick Look opens nothing: the panel has no room for it.
+// 13. Quick Look opens nothing: the panel has no room for it.
 window.imark.setPreview(true)
 click(again.querySelector('svg'))
 results.quickLookOpensNothing = !viewer()

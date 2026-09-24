@@ -658,14 +658,13 @@ pre code {
 :root[data-preview='true'] .mermaid-block svg { cursor: auto; }
 
 /* Over the whole window, the strip under the toolbar included, as the page is;
-   the stage starts below the toolbar. Contained, so scrolling past the end of
-   the diagram does not scroll the page behind it. */
+   the stage starts below the toolbar. It does its own scrolling, in main.js:
+   WebKit passed what it had no room for on to the page behind it. */
 .diagram-viewer {
   position: fixed;
   inset: 0;
   z-index: 20;
   overflow: auto;
-  overscroll-behavior: contain;
   background: var(--bg);
   outline: none;
   cursor: grab;
