@@ -117,7 +117,7 @@ public final class RendererView: NSView {
         // has to be installed before the web view exists.
         config.userContentController.add(bridge, name: "imark")
 
-        webView = WKWebView(frame: .zero, configuration: config)
+        webView = PageView(frame: .zero, configuration: config)
         webView.setValue(false, forKey: "drawsBackground")
         webView.allowsBackForwardNavigationGestures = false
 
@@ -471,6 +471,19 @@ public final class RendererView: NSView {
             }
         }
     }
+}
+
+// MARK: - Title bar
+
+/// The page runs up under the toolbar, so the web view sits beneath the title
+/// bar too — and a web view says no to `mouseDownCanMoveWindow`, which AppKit
+/// reads as the title bar there being something to click. Double-clicking the
+/// title bar then did nothing: no zoom, and no second double-click to put the
+/// window back. The page never gets a mouse-down up there either way, because
+/// the title bar is on top of it, and everywhere else the web view takes its
+/// own clicks before the window could think of moving.
+private final class PageView: WKWebView {
+    override var mouseDownCanMoveWindow: Bool { true }
 }
 
 // MARK: - Navigation

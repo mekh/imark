@@ -70,6 +70,9 @@ if [ "${1:-}" != "--force" ]; then
 	swiftc -parse-as-library Sources/Imark/Comments.swift Sources/Imark/NoteColour.swift \
 		Support/test-comments.swift -o /tmp/imark-release-test >/dev/null 2>&1 \
 		&& /tmp/imark-release-test >/dev/null || die "the comment tests failed"
+	swiftc -parse-as-library $(find Sources/ImarkRender -name '*.swift') \
+		Support/test-titlebar.swift -o /tmp/imark-release-titlebar >/dev/null 2>&1 \
+		&& /tmp/imark-release-titlebar >/dev/null || die "the title bar tests failed"
 	node Support/test-export.mjs >/dev/null 2>&1 || die "the export test failed"
 	node Support/test-notes.mjs >/dev/null 2>&1 || die "the note anchoring tests failed"
 	node Support/test-invocation.mjs >/dev/null 2>&1 || die "the plugin invocation tests failed"
