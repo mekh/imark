@@ -77,13 +77,15 @@ if [ "${1:-}" != "--force" ]; then
 	Support/test-tap.sh >/dev/null 2>&1 || die "the Homebrew cask tests failed"
 	swift build >/dev/null 2>&1
 	TEST_BIN="$(swift build --show-bin-path)"
-	swiftc -parse-as-library -I "$TEST_BIN/Modules" -F "$TEST_BIN" \
+	# Both search paths: the native build system puts the modules in Modules/,
+	# Swift Build — the default in Swift 6.4 — puts them beside the products.
+	swiftc -parse-as-library -I "$TEST_BIN" -I "$TEST_BIN/Modules" -F "$TEST_BIN" \
 			-Xlinker -rpath -Xlinker "$TEST_BIN" \
 			$(find Sources/Imark -name '*.swift' ! -name main.swift) \
 			$(find Sources/ImarkRender -name '*.swift') \
 			Support/test-undo.swift -o /tmp/imark-release-undo >/dev/null 2>&1 \
 		&& /tmp/imark-release-undo >/dev/null || die "the undo tests failed"
-	swiftc -parse-as-library -I "$TEST_BIN/Modules" -F "$TEST_BIN" \
+	swiftc -parse-as-library -I "$TEST_BIN" -I "$TEST_BIN/Modules" -F "$TEST_BIN" \
 			-Xlinker -rpath -Xlinker "$TEST_BIN" \
 			$(find Sources/Imark -name '*.swift' ! -name main.swift) \
 			$(find Sources/ImarkRender -name '*.swift') \

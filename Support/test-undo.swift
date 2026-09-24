@@ -1,8 +1,11 @@
 // Tests for taking a comment back.
 //
-//   swiftc -parse-as-library $(find Sources/Imark -name '*.swift' ! -name main.swift) \
-//          $(find Sources/ImarkRender -name '*.swift') \
-//          Support/test-undo.swift -o /tmp/imark-test-undo && /tmp/imark-test-undo
+//   TEST_BIN="$(swift build --show-bin-path)"
+//   swiftc -parse-as-library -I "$TEST_BIN" -I "$TEST_BIN/Modules" -F "$TEST_BIN" \
+//     -Xlinker -rpath -Xlinker "$TEST_BIN" \
+//     $(find Sources/Imark -name '*.swift' ! -name main.swift) \
+//     $(find Sources/ImarkRender -name '*.swift') \
+//     Support/test-undo.swift -o /tmp/imark-test-undo && /tmp/imark-test-undo
 //
 // Undo is the only thing in Imark that writes a whole file at once. Everything
 // else edits a range of lines and checks the file first. That makes it the one
