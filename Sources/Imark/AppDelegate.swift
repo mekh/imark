@@ -156,7 +156,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             controller.window?.makeKeyAndOrderFront(nil)
             guard controller.mayLeaveDocument() else { return .terminateCancel }
         }
-        return .terminateNow
+        // Where each document is being read goes down on the way out, and only
+        // its page can say where that is, answering after this has returned.
+        // So quitting waits for the answers, and for any that a window closed
+        // just before is still waiting for. Not for long: a page that does not
+        // answer does not keep the app from quitting.
+        for controller in controllers { controller.putDownReadingPlace() }
+        var replied = false
+        let reply = {
+            guard !replied else { return }
+            replied = true
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        ReadingPlaces.asking.notify(queue: .main, execute: reply)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: reply)
+        return .terminateLater
     }
 
     /// Quitting closes no windows, so without this File ▸ Open Recent would

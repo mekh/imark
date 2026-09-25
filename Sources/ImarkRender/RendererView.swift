@@ -16,6 +16,9 @@ public enum RendererMessage {
     case jumped(from: Double, to: Double)
     /// Where the page has scrolled to, once a frame while it moves.
     case scrolled(to: Double)
+    /// Where the document is being read, told once the scrolling stops and after
+    /// every render. Nil at the top.
+    case reading(ReadingPlace?)
     case openWiki(String)
     /// A link to a file beside the document, and the heading in it the link
     /// named, if it named one — still percent-encoded, as the href had it.
@@ -25,6 +28,33 @@ public enum RendererMessage {
     case selectionCleared
     case comments(notes: [NoteSummary], reviewing: Bool)
     case noteCommand(NoteCommand)
+}
+
+/// Where a document was being read: the block under the toolbar, by the lines
+/// of the file it came from, and how far down it the page started, as a share
+/// of its height. Lines rather than an offset: the same offset is somewhere else
+/// in the text once the text size, the column width or the window has changed.
+public struct ReadingPlace: Codable, Equatable {
+    /// The block's first line, counted from zero as the page counts them.
+    public let line: Int
+    /// The line after its last one. With `line`, what the page finds it by.
+    public let end: Int
+    /// Past 1 when the page starts in the gap below the block.
+    public let share: Double
+
+    public init(line: Int, end: Int, share: Double) {
+        self.line = line
+        self.end = end
+        self.share = share
+    }
+
+    /// From what the page sends, which is nil at the top.
+    init?(page value: Any?) {
+        guard let raw = value as? [String: Any],
+              let line = raw["line"] as? Int, let end = raw["end"] as? Int,
+              let share = raw["share"] as? Double else { return nil }
+        self.init(line: line, end: end, share: share)
+    }
 }
 
 /// A live selection in the document, and where it came from in the file.
@@ -86,7 +116,7 @@ public struct TocEntry: Identifiable, Equatable {
 public final class RendererView: NSView {
     private let webView: WKWebView
     private var isReady = false
-    private var pending: (markdown: String, path: String, scroll: Double?, anchor: String?)?
+    private var pending: (markdown: String, path: String, scroll: Double?, anchor: String?, place: ReadingPlace?)?
 
     public var onMessage: ((RendererMessage) -> Void)?
 
@@ -146,10 +176,14 @@ public final class RendererView: NSView {
     /// `scroll` is where the page lands: the top for a document just opened, or
     /// where the reader left it for a step Back. Nil keeps the place, which is
     /// what a reload wants. `anchor` is a heading to land on instead, when the
-    /// document has it.
-    public func render(markdown: String, path: String, scroll: Double? = nil, anchor: String? = nil) {
+    /// document has it. `place` is where the document was last being read, which
+    /// comes before `scroll` when the page still has its block.
+    public func render(
+        markdown: String, path: String,
+        scroll: Double? = nil, anchor: String? = nil, place: ReadingPlace? = nil
+    ) {
         guard isReady else {
-            pending = (markdown, path, scroll, anchor)
+            pending = (markdown, path, scroll, anchor, place)
             return
         }
         call("window.imark.render", [
@@ -157,6 +191,7 @@ public final class RendererView: NSView {
             "path": path,
             "scroll": scroll.map { $0 as Any } ?? NSNull(),
             "anchor": anchor ?? "",
+            "place": place.map { ["line": $0.line, "end": $0.end, "share": $0.share] as Any } ?? NSNull(),
             "theme": palette,
             // Carried in the payload rather than sent separately: a standalone
             // call lands before the page is ready and is silently dropped.
@@ -178,6 +213,20 @@ public final class RendererView: NSView {
     /// Back and Forward inside one document: a place, not a heading.
     public func scrollTo(offset: Double) {
         call("window.imark.scrollToOffset", offset)
+    }
+
+    /// Where the document is being read, asked of the page now rather than
+    /// waited for. `answered` is false when there was no page to ask, or it did
+    /// not answer; a nil place with an answer is the top of the page.
+    ///
+    /// Asked after anything already sent to the page, and before anything sent
+    /// after this: calls reach it in order, so the answer is about the document
+    /// the page has when the call is made.
+    public func readingPlace(_ done: @escaping (_ place: ReadingPlace?, _ answered: Bool) -> Void) {
+        guard isReady else { return done(nil, false) }
+        webView.evaluateJavaScript("window.imark.readingPlace()") { value, error in
+            done(ReadingPlace(page: value), error == nil)
+        }
     }
 
     public func markMissingWikiLinks(_ targets: [String]) {
@@ -367,7 +416,7 @@ public final class RendererView: NSView {
                     owner.pending = nil
                     owner.render(
                         markdown: pending.markdown, path: pending.path,
-                        scroll: pending.scroll, anchor: pending.anchor
+                        scroll: pending.scroll, anchor: pending.anchor, place: pending.place
                     )
                 }
                 owner.onMessage?(.ready)
@@ -470,6 +519,9 @@ public final class RendererView: NSView {
 
             case "scrolled":
                 if let y = body["y"] as? Double { owner.onMessage?(.scrolled(to: y)) }
+
+            case "reading":
+                owner.onMessage?(.reading(ReadingPlace(page: body["place"])))
 
             case "openWiki":
                 if let target = body["target"] as? String { owner.onMessage?(.openWiki(target)) }
