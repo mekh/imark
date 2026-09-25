@@ -340,18 +340,20 @@ function remember(key, svg) {
 function placeDrawnDiagrams(root) {
   const themeVariables = mermaidTheme()
   const palette = JSON.stringify(themeVariables)
-  const placed = new Set()
-  const undrawn = []
-  for (const block of root.querySelectorAll('.mermaid-block')) {
+  const blocks = [...root.querySelectorAll('.mermaid-block')].map((block) => {
     const source = decodeURIComponent(block.dataset.graph || '')
-    const key = `${palette}\n${source}`
-    if (showing.get(block) === key) {
-      placed.add(key)
-      continue
-    }
+    return { block, source, key: `${palette}\n${source}` }
+  })
+  // Once per page: an SVG styles itself by its own id, and the same diagram
+  // placed twice would put two of that id in one document. Blocks already
+  // showing their drawing are counted first, wherever they sit: counted on the
+  // way down, one lower on the page was missed, and a palette that came back
+  // while it was being drawn in another gave its drawing to a block above too.
+  const placed = new Set(blocks.filter(({ block, key }) => showing.get(block) === key).map(({ key }) => key))
+  const undrawn = []
+  for (const { block, source, key } of blocks) {
+    if (showing.get(block) === key) continue
     const svg = drawnDiagrams.get(key)
-    // Once per page: an SVG styles itself by its own id, and the same diagram
-    // placed twice would put two of that id in one document.
     if (svg === undefined || placed.has(key)) {
       undrawn.push({ block, source, key })
       continue

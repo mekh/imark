@@ -123,6 +123,27 @@ window.imark.setTheme('dark')
 await settled()
 results.aDrawingCaughtByAPaletteChangeIsNotKept = inPalette()
 
+// 10. The same diagram twice, and the first palette coming back while the
+//     second block is still being drawn in another: the second block shows the
+//     drawing that is kept, so the first one is drawn anew rather than given
+//     the same SVG. Put back from the top down, both ended up with one id.
+await render(doc(diagram('Twin'), diagram('Twin')))
+const [upper] = document.querySelectorAll('.mermaid-block')
+await new Promise((resolve) => {
+  // Diagrams are drawn one at a time: the upper block has just been given its
+  // drawing in the other palette, and the lower one still shows the first.
+  const watch = new MutationObserver(() => {
+    watch.disconnect()
+    window.imark.setTheme('dark')
+    resolve()
+  })
+  watch.observe(upper, { childList: true })
+  window.imark.setTheme('light')
+})
+await settled()
+const twins = ids()
+results.aDrawingShowingBelowIsNotPutInAgainAbove = twins.length === 2 && twins[0] !== twins[1]
+
 return JSON.stringify(results)
 """
 
