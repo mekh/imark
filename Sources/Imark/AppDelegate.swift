@@ -159,7 +159,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .terminateNow
     }
 
+    /// Quitting closes no windows, so without this File ▸ Open Recent would
+    /// never hear that these documents were put down. Back to front, so the
+    /// one in front lands on top.
+    func applicationWillTerminate(_ notification: Notification) {
+        let front = NSApp.orderedWindows
+        func depth(_ controller: DocumentWindowController) -> Int {
+            controller.window.flatMap { front.firstIndex(of: $0) } ?? front.count
+        }
+        for controller in controllers.sorted(by: { depth($0) > depth($1) }) {
+            RecentFiles.shared.note(controller.url)
+        }
+    }
+
     // MARK: - Windows
+
+    /// The documents with a window, which File ▸ Open Recent leaves out.
+    var openDocuments: [URL] { controllers.map(\.url) }
 
     /// `host` asks for the document to land as a tab beside that window rather
     /// than wherever the window server would have put it. Said outright instead

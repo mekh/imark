@@ -175,6 +175,10 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
             back.append(url)
             forward.removeAll()
         }
+        // One document put down and another picked up, which is what File ▸
+        // Open Recent orders its list by.
+        RecentFiles.shared.note(url)
+        RecentFiles.shared.note(target)
         url = target
         window?.title = target.lastPathComponent
         window?.representedURL = target
@@ -887,6 +891,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         NotificationCenter.default.removeObserver(self)
         watcher = nil
+        RecentFiles.shared.note(url)
         onClose?()
     }
 }

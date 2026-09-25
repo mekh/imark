@@ -90,6 +90,7 @@ enum Menu {
     private static func fileMenu() -> NSMenu {
         let menu = NSMenu(title: "File")
         menu.addItem(withTitle: "Open…", action: #selector(AppDelegate.openDocument(_:)), keyEquivalent: "o")
+        menu.addItem(withTitle: "Open Recent", action: nil, keyEquivalent: "").submenu = RecentFiles.shared.menu()
         menu.addItem(.separator())
         menu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         menu.addItem(

@@ -210,6 +210,14 @@ enum Settings {
         set { store.set(newValue, forKey: "sidebarCollapsed") }
     }
 
+    /// File ▸ Open Recent, newest first, as paths. See RecentFiles. Not
+    /// announced: it changes with every document opened or put down, and no
+    /// window shows it.
+    static var recentFiles: [String] {
+        get { store.stringArray(forKey: "recentFiles") ?? [] }
+        set { store.set(newValue, forKey: "recentFiles") }
+    }
+
     /// The version of Imark whose copies of the agent files are on disk. It is
     /// what tells the first launch after an update from every launch after that,
     /// which is when those copies get brought forward. See AgentSetup.refresh.
