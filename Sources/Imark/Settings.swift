@@ -218,6 +218,13 @@ enum Settings {
         set { store.set(newValue, forKey: "agentFilesVersion") }
     }
 
+    /// Where each document was being read, as JSON. See ReadingPlaces. Not
+    /// announced: it changes as documents are read, and no window shows it.
+    static var readingPlaces: Data? {
+        get { store.data(forKey: "readingPlaces") }
+        set { store.set(newValue, forKey: "readingPlaces") }
+    }
+
     static func applyThemeToApp() {
         NSApp.appearance = theme.appearance
     }
