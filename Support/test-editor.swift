@@ -1,6 +1,8 @@
 // Tests for the half of the app that writes a whole document.
 //
-//   swiftc -parse-as-library -I .build/debug/Modules \
+//   TEST_BIN="$(swift build --show-bin-path)"
+//   swiftc -parse-as-library -I "$TEST_BIN" -I "$TEST_BIN/Modules" -F "$TEST_BIN" \
+//     -Xlinker -rpath -Xlinker "$TEST_BIN" \
 //     $(find Sources/Imark -name '*.swift' ! -name main.swift) \
 //     $(find Sources/ImarkRender -name '*.swift') \
 //     Support/test-editor.swift -o /tmp/imark-test-editor && /tmp/imark-test-editor

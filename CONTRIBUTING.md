@@ -20,7 +20,7 @@ that breaks one cannot ship anyway.
 Support/test-review.sh
 swift build
 TEST_BIN="$(swift build --show-bin-path)"
-swiftc -parse-as-library -I "$TEST_BIN/Modules" -F "$TEST_BIN" \
+swiftc -parse-as-library -I "$TEST_BIN" -I "$TEST_BIN/Modules" -F "$TEST_BIN" \
   -Xlinker -rpath -Xlinker "$TEST_BIN" \
   $(find Sources/Imark -name '*.swift' ! -name main.swift) \
   $(find Sources/ImarkRender -name '*.swift') \
