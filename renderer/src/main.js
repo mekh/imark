@@ -821,8 +821,10 @@ let renderToken = 0
 // Kept so comments can be exported without asking Swift to hand the file back.
 let lastSource = ''
 
-async function render({ markdown, path, theme, preview, rail, frontMatter, commentingControls, scroll, anchor }) {
+async function render({ markdown, path, theme, preview, rail, frontMatter, commentingControls, scroll, anchor, place }) {
   const token = ++renderToken
+  // A place still waiting to be told belongs to the page about to be replaced.
+  clearTimeout(readingTimer)
   lastSource = markdown ?? ''
   docDir = path ? path.slice(0, path.lastIndexOf('/')) || '/' : '/'
   slugCounts.clear()
@@ -847,12 +849,19 @@ async function render({ markdown, path, theme, preview, rail, frontMatter, comme
   // A reload keeps the place. Another document, or a step Back to one, says
   // where to land instead: without it a file opened from a link started as far
   // down as the one it was opened from. A link to a heading in it names the
-  // heading, and the page lands there if it has one.
+  // heading, and the page lands there if it has one. A document opened again
+  // names the place it was being read at, and lands there if it still has the
+  // block.
   const kept = window.scrollY
-  const moving = typeof scroll === 'number' || !!anchor
+  const moving = typeof scroll === 'number' || !!anchor || !!place
   const landing = () => {
     const heading = anchor ? findAnchor(anchor) : null
     if (heading) return headingTop(heading)
+    const block = place ? placeBlock(place) : null
+    if (block) {
+      const box = block.getBoundingClientRect()
+      return box.top + window.scrollY + place.share * box.height - topInset()
+    }
     return typeof scroll === 'number' ? scroll : kept
   }
 
@@ -897,10 +906,33 @@ async function render({ markdown, path, theme, preview, rail, frontMatter, comme
   const targets = [...root.querySelectorAll('a.wikilink')].map((a) => a.dataset.wikilink)
   if (targets.length) bridge({ type: 'wikilinks', targets: [...new Set(targets)] })
 
+  if (place) {
+    await settledAbove(placeBlock(place))
+    if (token !== renderToken) return
+  }
   window.scrollTo(0, Math.min(landing(), document.body.scrollHeight))
   updateActiveHeading()
   reportPlace()
+  reportReading()
   bridge({ type: 'rendered' })
+}
+
+// Everything above a place that can still change height once the page is laid
+// out: the fonts, and images that have not arrived. WebKit does not anchor the
+// scroll, so an image that loaded above the block after the page had landed on
+// it pushed the block down the window by the image's height. Waited for with a
+// limit: the page is already near the place by then, and an image that never
+// arrives should not hold up the rest of the render with it.
+async function settledAbove(block) {
+  if (!block) return
+  const pending = [...content().querySelectorAll('img')].filter(
+    (img) => !img.complete && img.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING,
+  )
+  const loads = pending.map((img) => img.decode().catch(() => {}))
+  await Promise.race([
+    Promise.all([document.fonts.ready, ...loads]),
+    new Promise((resolve) => setTimeout(resolve, 1000)),
+  ])
 }
 
 /* --------------------------------------------------------- scroll tracking */
@@ -914,6 +946,53 @@ let scrollQueued = false
 // WebKit thinks nobody is looking at.
 function reportPlace() {
   bridge({ type: 'scrolled', y: restingAt() })
+}
+
+// Where the document is being read, for the app to open it there next time:
+// the block under the toolbar, by the lines of the file it came from, and how
+// far down it the view starts, as a share of its height. Lines rather than the
+// offset, which is somewhere else in the text once the text size, the column
+// or the window has changed. Null at the top, where there is nothing to keep.
+function readingPlace() {
+  const top = topInset()
+  // The last block to start at or above that line: the list item being read,
+  // not the whole list. One with no height is not on the page. A block landed
+  // on can be a fraction of a pixel below the line.
+  let block = null
+  for (const candidate of content().querySelectorAll('[data-line]')) {
+    const box = candidate.getBoundingClientRect()
+    if (!box.height) continue
+    if (box.top > top + 1) break
+    block = candidate
+  }
+  const lines = lineRange(block)
+  if (!lines) return null
+  const box = block.getBoundingClientRect()
+  return { line: lines.start, end: lines.end, share: Math.max(0, (top - box.top) / box.height) }
+}
+
+// The block a remembered place names. The last of them, as `readingPlace`
+// finds it: a blockquote and the paragraph inside it come from the same lines.
+function placeBlock(place) {
+  const found = content().querySelectorAll(`[data-line="${place.line},${place.end}"]`)
+  return found[found.length - 1] ?? null
+}
+
+// Told once the scrolling stops, not on every frame: finding the block walks
+// the page from the top, and in a long document that is thousands of boxes.
+// The app keeps the latest and writes it down every few seconds. When the
+// document is put down it asks instead, because a scroll still going then has
+// told nothing yet.
+let readingTimer = 0
+
+function reportReading() {
+  clearTimeout(readingTimer)
+  bridge({ type: 'reading', place: readingPlace() })
+}
+
+function reportReadingSoon() {
+  clearTimeout(readingTimer)
+  readingTimer = setTimeout(reportReading, 250)
 }
 
 function updateActiveHeading() {
@@ -943,6 +1022,7 @@ window.addEventListener(
   'scroll',
   () => {
     reportPlace()
+    reportReadingSoon()
     if (scrollQueued) return
     scrollQueued = true
     requestAnimationFrame(() => {
@@ -1273,6 +1353,7 @@ document.addEventListener('click', (event) => {
   if (wiki) {
     event.preventDefault()
     reportPlace()
+    reportReading()
     bridge({ type: 'openWiki', target: wiki })
     return
   }
@@ -1292,6 +1373,7 @@ document.addEventListener('click', (event) => {
     const path = decodeURIComponent((hash < 0 ? href : href.slice(0, hash)).replace('imark://file', ''))
     const anchor = hash < 0 ? '' : href.slice(hash + 1)
     reportPlace()
+    reportReading()
     bridge({ type: 'openLocal', path, anchor })
   } else if (isExternal(href)) {
     bridge({ type: 'openExternal', url: href })
@@ -1420,6 +1502,9 @@ window.imark = {
   scrollToOffset(y) {
     glideTo(y)
   },
+  /// Asked by the app when a document is put down: what the page told last
+  /// can be a whole scroll behind by then.
+  readingPlace,
   setTheme(theme) {
     document.documentElement.dataset.theme = theme
     const blocks = document.querySelectorAll('.mermaid-block')

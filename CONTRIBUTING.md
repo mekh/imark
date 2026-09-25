@@ -30,6 +30,12 @@ mkdir -p /tmp/imark-test-history && swiftc -parse-as-library -I "$TEST_BIN/Modul
   $(find Sources/Imark -name '*.swift' ! -name main.swift) \
   $(find Sources/ImarkRender -name '*.swift') \
   Support/test-history.swift -o /tmp/imark-test-history/run && /tmp/imark-test-history/run
+mkdir -p /tmp/imark-test-reading-place && swiftc -parse-as-library -I "$TEST_BIN" \
+  -I "$TEST_BIN/Modules" -F "$TEST_BIN" -Xlinker -rpath -Xlinker "$TEST_BIN" \
+  $(find Sources/Imark -name '*.swift' ! -name main.swift) \
+  $(find Sources/ImarkRender -name '*.swift') \
+  Support/test-reading-place.swift -o /tmp/imark-test-reading-place/run \
+  && /tmp/imark-test-reading-place/run
 node Support/test-notes.mjs
 node Support/test-export.mjs
 node Support/test-math.mjs

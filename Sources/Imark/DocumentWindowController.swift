@@ -58,6 +58,22 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
     private var scrollOffset: Double = 0
     private var here: Place { Place(url: url, offset: scrollOffset) }
 
+    /// The text on the page, as a digest: what a reading place is remembered
+    /// against. Nil while the page shows something other than the file, whose
+    /// place is nothing to remember.
+    private var digest: String?
+    /// Where the page is being read, as it last told it, and the text it was
+    /// told for. Reachable from Support/test-reading-place.swift, which waits on
+    /// it: the page tells once the scrolling stops, on a timer WebKit holds back
+    /// in a window nobody is looking at.
+    private(set) var reading: (place: ReadingPlace?, digest: String)?
+    /// Set while that is not written down yet. It is written at most every few
+    /// seconds while the reader moves: it goes into the settings, and a write
+    /// on every stop of the scrolling would be a write every second. When the
+    /// document is put down, the page is asked instead (`putDownReadingPlace`).
+    private var placeSave: DispatchWorkItem?
+    private static let placeSaveDelay: TimeInterval = 5
+
     /// Documents past this size would lock the web view up; render a prefix and
     /// say so instead of beachballing.
     private static let sizeLimit = 5 * 1_024 * 1_024
@@ -174,10 +190,11 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
 
     // MARK: - Loading
 
-    /// `offset` is where the page lands: the top for a document being opened,
-    /// where the reader left it for a step Back or Forward. `anchor` is the
-    /// heading a link to the document named, which wins when it is there.
-    func show(_ target: URL, pushingHistory: Bool, at offset: Double = 0, anchor: String? = nil) {
+    /// `offset` is where the page lands for a step Back or Forward: where the
+    /// reader left it. Nil is a document being opened, which lands where it was
+    /// last being read if its text is the same, and at the top if not. `anchor`
+    /// is the heading a link to the document named, which wins when it is there.
+    func show(_ target: URL, pushingHistory: Bool, at offset: Double? = nil, anchor: String? = nil) {
         // Another document in the same window means this one is being put down.
         guard mayLeaveDocument() else { return }
         // It goes down reading: an editor left open on a file you are no longer
@@ -192,15 +209,18 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
             back.append(here)
             forward.removeAll()
         }
+        // While `url` and `digest` are still the document being put down, and
+        // before the page is sent the next one.
+        putDownReadingPlace()
         url = target
-        scrollOffset = offset
+        scrollOffset = offset ?? 0
         window?.title = target.lastPathComponent
         window?.representedURL = target
         content.setStatus(path: target)
         // One document's folded sections should not carry over to the next.
         sidebar.resetOutlineState()
         refreshSiblings()
-        load(landingAt: offset, anchor: anchor)
+        load(landingAt: offset ?? 0, anchor: anchor, resuming: offset == nil && anchor == nil)
 
         watcher = FileWatcher(url: target) { [weak self] event in
             guard let self else { return }
@@ -226,7 +246,9 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
     }
 
     /// `offset` nil keeps the place on the page, which is what a reload wants.
-    private func load(landingAt offset: Double? = nil, anchor: String? = nil) {
+    /// `resuming` lands where the document was last being read instead, when
+    /// that was in the text on disk now.
+    private func load(landingAt offset: Double? = nil, anchor: String? = nil, resuming: Bool = false) {
         // Asked again from disk: a different document, or the same one after an
         // edit, may have stopped being a review — and the toolbar is built from
         // the answer.
@@ -237,6 +259,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         refreshEditButton()
 
         guard let source = try? String(contentsOf: url, encoding: .utf8) else {
+            digest = nil
             content.renderer.render(
                 markdown: "# Can't read this file\n\n`\(url.path)`\n\nIt exists, but it isn't UTF-8 text.",
                 path: url.path
@@ -244,6 +267,9 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
             return
         }
         var text = source
+        let digest = ReadingPlaces.digest(of: source)
+        self.digest = digest
+        let place = resuming ? ReadingPlaces.place(of: url, digest: digest) : nil
 
         if text.utf8.count > Self.sizeLimit {
             let prefix = String(decoding: Array(text.utf8.prefix(Self.sizeLimit)), as: UTF8.self)
@@ -260,10 +286,11 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         // Only when there is nothing unsaved: the caller checked that before
         // reloading at all, and this is the second lock on the same door.
         if editMode, !content.editor.isDirty { content.editor.load(source) }
-        content.renderer.render(markdown: text, path: url.path, scroll: offset, anchor: anchor)
+        content.renderer.render(markdown: text, path: url.path, scroll: offset, anchor: anchor, place: place)
     }
 
     private func showVanished() {
+        digest = nil
         content.renderer.render(
             markdown: "# This file no longer exists\n\n`\(url.path)`",
             path: url.path
@@ -318,6 +345,14 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
 
         case .scrolled(let offset):
             scrollOffset = offset
+
+        case .reading(let place):
+            guard let digest else { break }
+            reading = (place, digest)
+            guard placeSave == nil else { break }
+            let save = DispatchWorkItem { [weak self] in self?.saveReadingPlace() }
+            placeSave = save
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.placeSaveDelay, execute: save)
 
         case .wikilinks(let targets):
             let dead = targets.filter { LinkRouter.resolveWiki($0, from: url) == nil }
@@ -945,6 +980,44 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         NotificationCenter.default.removeObserver(self)
         watcher = nil
+        putDownReadingPlace()
         onClose?()
+    }
+
+    /// Writes down where the document is being read, if the page has told
+    /// anything since the last time: every few seconds while it is read.
+    private func saveReadingPlace() {
+        guard let save = placeSave else { return }
+        save.cancel()
+        placeSave = nil
+        guard let reading else { return }
+        ReadingPlaces.remember(reading.place, of: url, digest: reading.digest)
+    }
+
+    /// Writes down where the document is being read as it is put down: another
+    /// document in the window, the window closing, the app quitting. The page
+    /// is asked, because what it told last can be a whole scroll behind — it
+    /// tells once the scrolling stops, and the PRD scrolled from 11.3.2 through
+    /// to 12.3 and quit straight away opened on 11.3.2 again.
+    ///
+    /// What it told last goes down at once all the same, for a page that never
+    /// answers. The answer comes after the window may have gone, so it carries
+    /// the document with it, and holds the page until then.
+    func putDownReadingPlace() {
+        placeSave?.cancel()
+        placeSave = nil
+        guard let digest else { return }
+        let url = url
+        if let reading, reading.digest == digest {
+            ReadingPlaces.remember(reading.place, of: url, digest: digest)
+        }
+        let renderer = content.renderer
+        ReadingPlaces.asking.enter()
+        renderer.readingPlace { place, answered in
+            withExtendedLifetime(renderer) {
+                if answered { ReadingPlaces.remember(place, of: url, digest: digest) }
+            }
+            ReadingPlaces.asking.leave()
+        }
     }
 }
