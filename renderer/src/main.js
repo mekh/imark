@@ -417,6 +417,10 @@ async function drawEach({ themeVariables, undrawn }, token) {
       block.innerHTML = `<div class="diagram-error"><strong>Invalid diagram</strong><pre>${escapeHtml(
         error?.message ?? error,
       )}</pre></div>`
+      // Shown as well, or every change in Settings parsed it again and put in a
+      // new error box. Not kept: a new render parses it once more, which costs
+      // nothing like a drawing.
+      showing.set(block, key)
     }
   }
 }

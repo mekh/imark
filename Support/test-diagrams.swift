@@ -154,6 +154,15 @@ results.aRenderWaitsForTheDrawingThatTookOver = inPalette()
 window.imark.setTheme('dark')
 await settled()
 
+// 12. A diagram mermaid cannot read is shown once as an error, and the
+//     palette sent again leaves it alone, as it does a drawing.
+await render(doc(['```mermaid', 'not a diagram at all', '```'].join('\\n')))
+const errorBox = document.querySelector('.mermaid-block .diagram-error')
+window.imark.setTheme('dark')
+await new Promise((r) => setTimeout(r, 1000))
+results.anInvalidDiagramIsShownAsAnError = !!errorBox
+results.theSamePaletteAgainLeavesAnErrorAlone = !!errorBox && document.querySelector('.mermaid-block .diagram-error') === errorBox
+
 return JSON.stringify(results)
 """
 
