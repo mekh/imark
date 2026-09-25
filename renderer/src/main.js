@@ -1289,6 +1289,44 @@ function report() {
   bridge({ type: 'find', count: matches.length, index: matches.length ? matchIndex + 1 : 0 })
 }
 
+/* ------------------------------------------------------ keeping the place */
+
+// Runs a change that moves the text — the text size, the column width — and
+// puts the reader back on the line they were reading. The page keeps its
+// scroll offset in pixels, and with the text a size bigger every paragraph
+// above the window is taller, so the same offset is further up the document:
+// each ⌘+ scrolled the page back and each ⌘− scrolled it on.
+function keepingPlace(change) {
+  // Measured from under the toolbar, where the visible page starts.
+  const top = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top-inset')) || 0
+  // The last block to start at or above that line: the list item or table row
+  // being read rather than the whole list, so a long one is not guessed
+  // through. Blocks come in the order they sit on the page; one with no height
+  // is not on it, like a front matter card that has been put away.
+  let block = null
+  for (const candidate of content().querySelectorAll('[data-line]')) {
+    const box = candidate.getBoundingClientRect()
+    if (!box.height) continue
+    if (box.top > top) break
+    block = candidate
+  }
+  if (!block) return change()
+  const before = block.getBoundingClientRect()
+  // Inside the block, how far into it as a share of its height: the block
+  // grows with its text, and the line that was at the top grows with it. Past
+  // its end, in the gap before the next block, how far past in pixels: the
+  // gaps are fixed, and a share of a taller block overshot into the next one.
+  const inside = top < before.bottom
+  const share = (top - before.top) / before.height
+  const past = top - before.bottom
+  change()
+  const after = block.getBoundingClientRect()
+  const by = (inside ? after.top + share * after.height : after.bottom + past) - top
+  // Every window is sent every setting on any change in Settings, and one that
+  // did not change should not nudge the page by a rounding error.
+  if (Math.abs(by) >= 1) window.scrollBy(0, by)
+}
+
 /* ------------------------------------------------------------------- api */
 
 window.imark = {
@@ -1300,7 +1338,9 @@ window.imark = {
     if (blocks.length) renderMermaid(content(), theme)
   },
   setWidth(width) {
-    document.documentElement.dataset.width = width
+    keepingPlace(() => {
+      document.documentElement.dataset.width = width
+    })
   },
   setFrontMatter,
   setCommentingControls,
@@ -1317,7 +1357,9 @@ window.imark = {
   findStep: step,
   findClear: clearFind,
   setTextScale(scale) {
-    document.documentElement.style.setProperty('--size-body', `${scale}px`)
+    keepingPlace(() => {
+      document.documentElement.style.setProperty('--size-body', `${scale}px`)
+    })
   },
   /// How much of the top of the page the toolbar is standing on. Everything
   /// pinned to the viewport has to start below it, not just the prose — a rail
