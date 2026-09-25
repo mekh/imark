@@ -372,18 +372,20 @@ function remember(key, svg) {
 function placeDrawnDiagrams(root) {
   const themeVariables = mermaidTheme()
   const palette = JSON.stringify(themeVariables)
-  const placed = new Set()
-  const undrawn = []
-  for (const block of root.querySelectorAll('.mermaid-block')) {
+  const blocks = [...root.querySelectorAll('.mermaid-block')].map((block) => {
     const source = decodeURIComponent(block.dataset.graph || '')
-    const key = `${palette}\n${source}`
-    if (showing.get(block) === key) {
-      placed.add(key)
-      continue
-    }
+    return { block, source, key: `${palette}\n${source}` }
+  })
+  // Once per page: an SVG styles itself by its own id, and the same diagram
+  // placed twice would put two of that id in one document. Blocks already
+  // showing their drawing are counted first, wherever they sit: counted on the
+  // way down, one lower on the page was missed, and a palette that came back
+  // while it was being drawn in another gave its drawing to a block above too.
+  const placed = new Set(blocks.filter(({ block, key }) => showing.get(block) === key).map(({ key }) => key))
+  const undrawn = []
+  for (const { block, source, key } of blocks) {
+    if (showing.get(block) === key) continue
     const svg = drawnDiagrams.get(key)
-    // Once per page: an SVG styles itself by its own id, and the same diagram
-    // placed twice would put two of that id in one document.
     if (svg === undefined || placed.has(key)) {
       undrawn.push({ block, source, key })
       continue
@@ -398,6 +400,7 @@ function placeDrawnDiagrams(root) {
 }
 
 let drawing = 0
+let latestDrawing = Promise.resolve()
 
 // Measured from under the toolbar, where the visible page starts.
 const visibleTop = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top-inset')) || 0
@@ -435,10 +438,27 @@ const nextTask = () =>
     channel.port2.postMessage(null)
   })
 
-async function drawDiagrams({ themeVariables, undrawn }) {
+function drawDiagrams(diagrams) {
   // Counted even with nothing to draw: a document whose diagrams all came back
   // still takes the page from one whose diagrams are being drawn.
-  const token = ++drawing
+  latestDrawing = drawEach(diagrams, ++drawing)
+  return latestDrawing
+}
+
+// Waits for the drawing that has the page, whichever it is by then. A change
+// in Settings while a render waits on its own drawing draws everything again in
+// the new palette, and the render went on as soon as its own gave up: it put
+// the page back where it was against a page still missing its diagrams, and
+// said it was done before they were in.
+async function diagramsDrawn() {
+  let latest
+  while (latest !== latestDrawing) {
+    latest = latestDrawing
+    await latest
+  }
+}
+
+async function drawEach({ themeVariables, undrawn }, token) {
   if (!undrawn.length) return
   mermaid.initialize({
     startOnLoad: false,
@@ -486,6 +506,10 @@ async function drawDiagrams({ themeVariables, undrawn }) {
           error?.message ?? error,
         )}</pre></div>`
       })
+      // Shown as well, or every change in Settings parsed it again and put in a
+      // new error box. Not kept: a new render parses it once more, which costs
+      // nothing like a drawing.
+      showing.set(block, key)
     }
     if (!waiting.length) return
     await nextTask()
@@ -1268,7 +1292,8 @@ async function render({ markdown, path, theme, preview, rail, frontMatter, comme
   // After the outline rail, never before: the marks are placed against its
   // ticks, and ticks that do not exist yet put every note at the top.
   buildNoteRail()
-  await drawDiagrams(diagrams)
+  drawDiagrams(diagrams)
+  await diagramsDrawn()
   if (token !== renderToken) return
 
   const words = root.textContent.trim().split(/\s+/).filter(Boolean).length

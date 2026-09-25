@@ -203,6 +203,46 @@ landing.disconnect()
 results.aDrawingAboveTheReaderIsDrawn = document.querySelector('.mermaid-block svg') !== null
 results.andWhatTheyAreReadingStaysPut = movedBy !== null && Math.abs(movedBy) < 1
 
+// 14. The same diagram twice, and the first palette coming back while the
+//     second block is still being drawn in another: the second block shows the
+//     drawing that is kept, so the first one is drawn anew rather than given
+//     the same SVG. Put back from the top down, both ended up with one id.
+await render(doc(diagram('Twin'), diagram('Twin')))
+const [upper] = document.querySelectorAll('.mermaid-block')
+await new Promise((resolve) => {
+  // Diagrams are drawn one at a time: the upper block has just been given its
+  // drawing in the other palette, and the lower one still shows the first.
+  const watch = new MutationObserver(() => {
+    watch.disconnect()
+    window.imark.setTheme('dark')
+    resolve()
+  })
+  watch.observe(upper, { childList: true })
+  window.imark.setTheme('light')
+})
+await settled()
+const twins = ids()
+results.aDrawingShowingBelowIsNotPutInAgainAbove = twins.length === 2 && twins[0] !== twins[1]
+
+// 15. A render the palette changes under waits for the diagrams in the new
+//     palette. It went on as soon as its own drawing gave up, and put the page
+//     back in its place before the diagrams that make its height were in.
+const overtaken = render(doc(diagram('Overtaken'), diagram('Also overtaken')))
+window.imark.setTheme('light')
+await overtaken
+results.aRenderWaitsForTheDrawingThatTookOver = inPalette()
+window.imark.setTheme('dark')
+await settled()
+
+// 16. A diagram mermaid cannot read is shown once as an error, and the
+//     palette sent again leaves it alone, as it does a drawing.
+await render(doc(['```mermaid', 'not a diagram at all', '```'].join('\\n')))
+const errorBox = document.querySelector('.mermaid-block .diagram-error')
+window.imark.setTheme('dark')
+await new Promise((r) => setTimeout(r, 1000))
+results.anInvalidDiagramIsShownAsAnError = !!errorBox
+results.theSamePaletteAgainLeavesAnErrorAlone = !!errorBox && document.querySelector('.mermaid-block .diagram-error') === errorBox
+
 return JSON.stringify(results)
 """
 
