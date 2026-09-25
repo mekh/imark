@@ -36,6 +36,11 @@ mkdir -p /tmp/imark-test-editor-place && swiftc -parse-as-library -I "$TEST_BIN"
   $(find Sources/ImarkRender -name '*.swift') \
   Support/test-editor-place.swift -o /tmp/imark-test-editor-place/run \
   && /tmp/imark-test-editor-place/run
+swiftc -parse-as-library -I "$TEST_BIN" -I "$TEST_BIN/Modules" -F "$TEST_BIN" \
+  -Xlinker -rpath -Xlinker "$TEST_BIN" \
+  $(find Sources/Imark -name '*.swift' ! -name main.swift) \
+  $(find Sources/ImarkRender -name '*.swift') \
+  Support/test-recent.swift -o /tmp/imark-test-recent && /tmp/imark-test-recent
 node Support/test-notes.mjs
 node Support/test-export.mjs
 node Support/test-math.mjs

@@ -114,6 +114,12 @@ if [ "${1:-}" != "--force" ]; then
 			$(find Sources/ImarkRender -name '*.swift') \
 			Support/test-editor-place.swift -o /tmp/imark-release-editor-place/run >/dev/null 2>&1 \
 		&& /tmp/imark-release-editor-place/run >/dev/null || die "the editing place tests failed"
+	swiftc -parse-as-library -I "$TEST_BIN" -I "$TEST_BIN/Modules" -F "$TEST_BIN" \
+			-Xlinker -rpath -Xlinker "$TEST_BIN" \
+			$(find Sources/Imark -name '*.swift' ! -name main.swift) \
+			$(find Sources/ImarkRender -name '*.swift') \
+			Support/test-recent.swift -o /tmp/imark-release-recent >/dev/null 2>&1 \
+		&& /tmp/imark-release-recent >/dev/null || die "the Open Recent tests failed"
 	swift Support/test-plus.swift >/dev/null 2>&1 || die "the margin button tests failed"
 	swift Support/test-text-size.swift >/dev/null 2>&1 || die "the text size tests failed"
 	swift Support/test-pieces.swift >/dev/null 2>&1 || die "the list and table note tests failed"
