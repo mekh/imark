@@ -144,6 +144,16 @@ await settled()
 const twins = ids()
 results.aDrawingShowingBelowIsNotPutInAgainAbove = twins.length === 2 && twins[0] !== twins[1]
 
+// 11. A render the palette changes under waits for the diagrams in the new
+//     palette. It went on as soon as its own drawing gave up, and put the page
+//     back in its place before the diagrams that make its height were in.
+const overtaken = render(doc(diagram('Overtaken'), diagram('Also overtaken')))
+window.imark.setTheme('light')
+await overtaken
+results.aRenderWaitsForTheDrawingThatTookOver = inPalette()
+window.imark.setTheme('dark')
+await settled()
+
 return JSON.stringify(results)
 """
 

@@ -368,11 +368,29 @@ function placeDrawnDiagrams(root) {
 }
 
 let drawing = 0
+let latestDrawing = Promise.resolve()
 
-async function drawDiagrams({ themeVariables, undrawn }) {
+function drawDiagrams(diagrams) {
   // Counted even with nothing to draw: a document whose diagrams all came back
   // still takes the page from one whose diagrams are being drawn.
-  const token = ++drawing
+  latestDrawing = drawEach(diagrams, ++drawing)
+  return latestDrawing
+}
+
+// Waits for the drawing that has the page, whichever it is by then. A change
+// in Settings while a render waits on its own drawing draws everything again in
+// the new palette, and the render went on as soon as its own gave up: it put
+// the page back where it was against a page still missing its diagrams, and
+// said it was done before they were in.
+async function diagramsDrawn() {
+  let latest
+  while (latest !== latestDrawing) {
+    latest = latestDrawing
+    await latest
+  }
+}
+
+async function drawEach({ themeVariables, undrawn }, token) {
   if (!undrawn.length) return
   mermaid.initialize({
     startOnLoad: false,
@@ -887,7 +905,8 @@ async function render({ markdown, path, theme, preview, rail, frontMatter, comme
   // After the outline rail, never before: the marks are placed against its
   // ticks, and ticks that do not exist yet put every note at the top.
   buildNoteRail()
-  await drawDiagrams(diagrams)
+  drawDiagrams(diagrams)
+  await diagramsDrawn()
   if (token !== renderToken) return
 
   const words = root.textContent.trim().split(/\s+/).filter(Boolean).length
