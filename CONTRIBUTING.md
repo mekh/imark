@@ -41,6 +41,11 @@ Support/test-setup.sh
 Support/test-cli.sh
 Support/test-update.sh
 Support/test-tap.sh
+swiftc -parse-as-library -I "$TEST_BIN" -I "$TEST_BIN/Modules" -F "$TEST_BIN" \
+  -Xlinker -rpath -Xlinker "$TEST_BIN" \
+  $(find Sources/Imark -name '*.swift' ! -name main.swift) \
+  $(find Sources/ImarkRender -name '*.swift') \
+  Support/test-settings.swift -o /tmp/imark-test-settings && /tmp/imark-test-settings
 ```
 
 ## Where things are
