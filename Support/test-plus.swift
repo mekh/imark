@@ -300,6 +300,36 @@ await sleep(30)
 results.theMarginBesideATableStillOffersTheTable =
   document.querySelector('#content table').classList.contains('block-target')
 
+// 7e. Beside a list the `+` stays with the item level with the pointer. The
+//     item is found by looking at the list's left edge at that height, where
+//     the button for that item already stands: the look found the button,
+//     offered the whole list, and the button went to the top of it. Every move
+//     in the margin swapped the two.
+await window.imark.render({
+  markdown: '# Heading\\n\\n- first item\\n- second item\\n- third item\\n',
+  path: '/tmp/t.md',
+  theme: 'dark',
+})
+await sleep(300)
+hover(5, 5)
+await sleep(300)
+const [, secondItem] = document.querySelectorAll('#content li')
+const itemBox = secondItem.getBoundingClientRect()
+const itemY = itemBox.top + itemBox.height / 2
+hover(itemBox.left + 20, itemY)
+const listPlus = document.querySelector('.block-plus')
+const plusTop = listPlus.style.top
+let swaps = 0
+let lit = secondItem
+for (let x = itemBox.left + 20; x >= itemBox.left - 90; x -= 1) {
+  hover(x, itemY)
+  const now = document.querySelector('.block-target')
+  if (now !== lit) swaps++
+  lit = now
+}
+results.plusStaysWithAListItemBesideIt = swaps === 0 && lit === secondItem
+  && listPlus.style.top === plusTop
+
 // 8. In the Quick Look panel there is nothing to write to, so no `+` — but the
 //    notes already in the file still have to show.
 window.imark.setPreview(true)

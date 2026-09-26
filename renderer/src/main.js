@@ -1031,7 +1031,11 @@ const pieceIn = (block, node) => {
 /// a table the margin still offers the table, and a cell has to be pointed at.
 function itemAtHeight(block, clientY) {
   const box = block.getBoundingClientRect()
-  const item = document.elementFromPoint(box.left + 8, clientY)?.closest?.('li')
+  // Looking past the `+`, which stands on this very spot once it offers an
+  // item: finding the button meant offering the whole list, which sent the
+  // button to the top of it, and the next move found the item again.
+  const item = document.elementsFromPoint(box.left + 8, clientY)
+    .find((el) => el !== plusButton)?.closest?.('li')
   return item && block.contains(item) ? item : null
 }
 
