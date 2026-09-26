@@ -1074,6 +1074,24 @@ function showPlus(target, block) {
   plusButton.style.left = `${Math.max(4, rect.left - 34)}px`
 }
 
+/// Whether the pointer is between a lit item or cell and its `+`, level with it.
+/// The button hangs to the left of what it offers, and for a table cell that is
+/// inside the cell next door: the way to it crossed that cell, which lit up and
+/// took the button along, so no cell but the first could be reached — and the
+/// first lost to the whole table as soon as the pointer left it for the margin.
+/// A pointer here is on its way to the button, and the offer stays put.
+///
+/// Only for a piece. Beside a whole block the margin at the same height already
+/// answers with that block, and beside a whole list it has to go on offering
+/// the item level with the pointer.
+function onTheWayToPlus(clientX, clientY) {
+  if (!plusTarget || plusTarget === plusBlock || plusButton.style.display === 'none') return false
+  const target = plusTarget.getBoundingClientRect()
+  const button = plusButton.getBoundingClientRect()
+  return clientX >= button.left && clientX < target.left
+    && clientY >= target.top && clientY <= target.bottom
+}
+
 function setUpBlockPlus() {
   plusButton = document.createElement('button')
   plusButton.type = 'button'
@@ -1130,6 +1148,7 @@ function setUpBlockPlus() {
     // Not while a selection is live: the popover is already open on words the
     // reader chose, and a second way in would fight it.
     if (hadSelection) return hidePlus()
+    if (onTheWayToPlus(event.clientX, event.clientY)) return cancelHide()
     // By line first, so the whole width of the reading area answers; the
     // element under the pointer only decides it when the two disagree, which
     // is inside a note card or a holder.
