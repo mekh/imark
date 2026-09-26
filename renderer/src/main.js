@@ -2056,13 +2056,23 @@ window.imark = {
 installCommentHandlers()
 setUpBlockPlus()
 setUpDiagramViewer()
+
+/// A glide Back returns from, the step `scrollToAnchor` makes for a link to a
+/// heading: Ask's citations and passages take the page to places too.
+function jumpTo(top) {
+  const from = restingAt()
+  const to = reachable(top)
+  if (Math.abs(to - from) >= 2) bridge({ type: 'jump', from, to })
+  glideTo(top)
+}
+
 window.imark.ask = installAsk({
   bridge,
   content,
   keepingPlace,
   selectionInfo,
   lineRange,
-  glideTo,
+  jumpTo,
   topInset,
   sourceLines: () => lastSource.split('\n'),
 })

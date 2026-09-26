@@ -1258,6 +1258,8 @@ enum AskTest {
               (js(page, "document.querySelector('.ask-model')?.textContent") as? String ?? "").contains("Claude Code"))
         check("the card is outside the document, so it is never document text",
               js(page, "document.getElementById('content').contains(document.querySelector('.ask-card'))") as? Bool == false)
+        check("the card's quote leads nowhere: the passage is right above it",
+              js(page, "document.querySelector('.ask-card .ask-quote')?.hasAttribute('data-action')") as? Bool == false)
 
         js(page, """
         (() => {
@@ -1430,6 +1432,90 @@ enum AskTest {
               js(page, "(() => { const e = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 40 }); document.querySelector('.ask-panel-head').dispatchEvent(e); return e.defaultPrevented })()") as? Bool == true)
         check("the panel keeps its scrolling to itself",
               js(page, "getComputedStyle(document.querySelector('.ask-panel')).overscrollBehaviorY") as? String == "contain")
+
+        // By the time an answer is read the reader is often far from the
+        // passage: the quote in the panel takes the page back there, and Back
+        // returns to where they were. The page is made long enough to leave.
+        let scrollY = { js(page, "window.scrollY") as? Double ?? -1 }
+        let passageShows = {
+            js(page, "(() => { const b = document.querySelector('.ask-anchor').getBoundingClientRect(); return b.top >= 0 && b.bottom <= innerHeight })()") as? Bool == true
+        }
+        let back = NSMenuItem(title: "Back", action: #selector(DocumentWindowController.goBackInHistory(_:)), keyEquivalent: "")
+        js(page, "document.getElementById('content').style.paddingBottom = '4000px'; window.scrollTo(0, 2000)")
+        spin(0.3)
+        check("the panel's quote is a link to the passage",
+              js(page, "document.querySelector('.ask-panel .ask-quote')?.getAttribute('role')") as? String == "button")
+        // Focused first, as the pointer pressed on it focuses it.
+        js(page, """
+        (() => {
+          const quote = document.querySelector('.ask-panel .ask-quote')
+          quote.focus()
+          quote.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }))
+        })()
+        """)
+        spin(0.8)
+        check("clicking it takes the page to the passage", passageShows(), "at \(scrollY())")
+        check("and leaves the keys to the page, where Space pages on",
+              js(page, "!document.activeElement.closest('.ask-panel')") as? Bool == true,
+              js(page, "document.activeElement.className") as? String ?? "nil")
+        check("and lights the block it is in",
+              js(page, "!!document.querySelector('.ask-anchor').closest('[data-line].ask-flash')") as? Bool == true)
+        check("a step Back can undo", controller.validateMenuItem(back))
+        controller.goBackInHistory(nil)
+        spin(0.8)
+        check("Back returns to where the reader was", abs(scrollY() - 2000) < 2, "at \(scrollY())")
+        js(page, "window.scrollTo(0, 0)")
+        spin(0.3)
+        js(page, "document.querySelectorAll('.ask-flash').forEach((el) => el.classList.remove('ask-flash'))")
+        js(page, "document.querySelector('.ask-panel .ask-quote').click()")
+        spin(0.8)
+        check("a passage already on screen only lights up",
+              scrollY() == 0 && !controller.validateMenuItem(back)
+                && js(page, "!!document.querySelector('.ask-anchor').closest('.ask-flash')") as? Bool == true,
+              "at \(scrollY())")
+        js(page, "window.scrollTo(0, 2000)")
+        spin(0.3)
+        js(page, """
+        (() => {
+          const quote = document.querySelector('.ask-panel .ask-quote')
+          quote.focus()
+          quote.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+        })()
+        """)
+        spin(0.8)
+        check("Return on the quote does what a click does", passageShows(), "at \(scrollY())")
+        // A passage on a line wider than its box, as in a code block: the box
+        // scrolls sideways to it too.
+        js(page, """
+        (() => {
+          const p = document.querySelector('.ask-anchor').closest('p')
+          p.style.cssText = 'white-space: nowrap; overflow-x: auto; width: 120px'
+          p.scrollLeft = 0
+        })()
+        """)
+        js(page, "document.querySelector('.ask-panel .ask-quote').click()")
+        spin(0.3)
+        check("a passage past the edge of a box that scrolls sideways is brought in",
+              js(page, """
+              (() => {
+                const p = document.querySelector('.ask-anchor').closest('p')
+                const box = p.getBoundingClientRect()
+                const words = document.querySelector('.ask-anchor').getBoundingClientRect()
+                return p.scrollLeft > 0 && words.left >= box.left && words.left < box.right
+              })()
+              """) as? Bool == true)
+        // Put back, and waited for: a hidden window hands out scroll events
+        // late, and one arriving after the next check's pointer move put away
+        // the `+` it looks for.
+        js(page, """
+        window.__scrolled = false
+        addEventListener('scroll', () => { window.__scrolled = true }, { once: true, capture: true })
+        document.querySelector('.ask-anchor').closest('p').style.cssText = ''
+        document.getElementById('content').style.paddingBottom = ''
+        window.scrollTo(0, 0)
+        """)
+        waitFor(3) { js(page, "window.__scrolled") as? Bool == true }
+        spin(0.1)
 
         // The margin's `+` answers the pointer by its height, and over the panel
         // it lit the document's blocks behind it as the pointer moved.
