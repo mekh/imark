@@ -121,18 +121,57 @@ final class AssistantsWindowController: NSWindowController, NSWindowDelegate, NS
         suggestions.describe = { [weak self] item in
             self?.shownModels.first { $0.id == item.value }.flatMap(ModelCatalog.summary(of:))
         }
+        NotificationCenter.default.addObserver(self, selector: #selector(windowWillCloseSomewhere(_:)),
+                                               name: NSWindow.willCloseNotification, object: nil)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("not supported") }
 
-    static func show() {
+    /// Over the window it was asked from, Settings or a document's Ask panel,
+    /// as a child window: kept above that window and moved with it, the way
+    /// Settings sits over the document. It opened in the middle of the screen
+    /// and stayed there, wherever Settings went.
+    static func show(over parent: NSWindow? = nil) {
         // Already open, with changes perhaps: brought forward as it is, not
-        // read again over them.
-        if shared.window?.isVisible != true { shared.load() }
+        // read again over them, and not moved. Open is not the same as on
+        // screen: a child goes when its parent is minimised.
+        if !shared.isOpen {
+            shared.load()
+            if let parent { shared.centre(over: parent) }
+        }
         shared.showWindow(nil)
+        shared.isOpen = true
+        shared.sit(over: parent)
         shared.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private var isOpen = false
+
+    private func sit(over parent: NSWindow?) {
+        guard let window, window.parent !== parent else { return }
+        window.parent?.removeChildWindow(window)
+        parent?.addChildWindow(window, ordered: .above)
+    }
+
+    private func centre(over parent: NSWindow) {
+        guard let window else { return }
+        let size = window.frame.size
+        window.setFrameOrigin(NSPoint(x: parent.frame.midX - size.width / 2,
+                                      y: parent.frame.midY - size.height / 2))
+    }
+
+    /// Closing a window orders its child windows out without closing them, and
+    /// this one would go with Settings or the document, still open, with its
+    /// changes in it and nothing on screen to save them from. It moves to the
+    /// document in front, or stays on its own.
+    @objc private func windowWillCloseSomewhere(_ notification: Notification) {
+        guard let closing = notification.object as? NSWindow, closing !== window,
+              closing === window?.parent else { return }
+        sit(over: NSApp.orderedWindows.first {
+            $0 !== closing && $0.isVisible && $0.windowController is DocumentWindowController
+        })
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
@@ -145,6 +184,8 @@ final class AssistantsWindowController: NSWindowController, NSWindowDelegate, NS
     func windowWillClose(_ notification: Notification) {
         suggestions.close()
         load()
+        isOpen = false
+        sit(over: nil)
     }
 
     func windowDidResignKey(_ notification: Notification) { suggestions.close() }

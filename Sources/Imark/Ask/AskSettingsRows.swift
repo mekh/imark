@@ -83,7 +83,7 @@ final class AskSettingsRows: NSObject {
 
     @objc private func usageChanged() { Settings.askShowsUsage = usage.state == .on }
 
-    @objc private func managePressed() { AssistantsWindowController.show() }
+    @objc private func managePressed(_ sender: NSButton) { AssistantsWindowController.show(over: sender.window) }
 
     @objc private func deleteAllPressed() {
         let alert = NSAlert()
