@@ -8,35 +8,16 @@ import AppKit
 /// The glyph is a subview rather than the button's own image so it can be
 /// swapped with a symbol transition: an icon that changes without moving reads
 /// as a redraw, and one that slides reads as an answer to the press.
-final class ThemeButton: NSButton {
-    private let glyph = NSImageView()
+final class ThemeButton: ToolbarButton {
     private var showing: Settings.Theme?
 
     init(target: AnyObject, action: Selector) {
-        super.init(frame: .zero)
-        bezelStyle = .texturedRounded
-        title = ""
-        imagePosition = .noImage
-        self.target = target
-        self.action = action
-
-        glyph.translatesAutoresizingMaskIntoConstraints = false
-        glyph.imageScaling = .scaleNone
-        addSubview(glyph)
-        NSLayoutConstraint.activate([
-            glyph.centerXAnchor.constraint(equalTo: centerXAnchor),
-            glyph.centerYAnchor.constraint(equalTo: centerYAnchor),
-            widthAnchor.constraint(equalToConstant: 38),
-            heightAnchor.constraint(equalToConstant: 24),
-        ])
-
+        super.init(symbol: nil, label: "Appearance", target: target, action: action)
         show(Settings.theme)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("not supported") }
-
-    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
 
     /// Animates only when the state actually moved. Every setting announces
     /// itself, so without this the glyph would jump each time somebody nudged
@@ -48,9 +29,8 @@ final class ThemeButton: NSButton {
         toolTip = "Appearance: \(theme.label)"
         setAccessibilityLabel("Appearance: \(theme.label)")
 
-        let configuration = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
         guard let image = NSImage(systemSymbolName: theme.symbol, accessibilityDescription: theme.label)?
-            .withSymbolConfiguration(configuration)
+            .withSymbolConfiguration(Self.configuration)
         else { return }
 
         if moved, #available(macOS 15.0, *) {

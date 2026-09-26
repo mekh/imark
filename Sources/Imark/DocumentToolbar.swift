@@ -18,7 +18,7 @@ private extension NSToolbarItem.Identifier {
     static let ask = NSToolbarItem.Identifier("ask")
 }
 
-extension DocumentWindowController: NSToolbarDelegate {
+extension DocumentWindowController: NSToolbarDelegate, NSToolbarItemValidation {
     func buildToolbar() {
         let toolbar = NSToolbar(identifier: "ImarkDocumentToolbar")
         toolbar.delegate = self
@@ -104,17 +104,19 @@ extension DocumentWindowController: NSToolbarDelegate {
 
         let on = reviewingComments
         let symbol = on ? "bubble.left.and.bubble.right.fill" : "bubble.left.and.bubble.right"
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Comments")
-        item.image = on ? image?.withSymbolConfiguration(.init(paletteColors: [.imarkAccent])) : image
-        item.toolTip = on ? "Hide All Comments (⇧⌘C)" : "Show All Comments (⇧⌘C)"
+        let button = item.view as? ToolbarButton
+        button?.show(NSImage(systemSymbolName: symbol, accessibilityDescription: "Comments"),
+                     tint: on ? .imarkAccent : nil)
+        button?.toolTip = on ? "Hide All Comments (⇧⌘C)" : "Show All Comments (⇧⌘C)"
     }
 
     /// Lit while the panel is open, the way Comments is lit in review mode.
     func refreshAskButton() {
         guard let item = window?.toolbar?.items.first(where: { $0.itemIdentifier == .ask }) else { return }
         let on = ask.panelOpen
-        item.image = AskGlyph.image(color: on ? .imarkAccent : nil)
-        item.toolTip = on ? "Close the Ask panel (⇧⌘J)" : "Ask about the document (⇧⌘J)"
+        let button = item.view as? ToolbarButton
+        button?.show(AskGlyph.image(ToolbarButton.configuration, color: on ? .imarkAccent : nil))
+        button?.toolTip = on ? "Close the Ask panel (⇧⌘J)" : "Ask about the document (⇧⌘J)"
     }
 
     /// Which side of the switch is lit. A tinted glyph says "on" only to somebody
@@ -205,7 +207,9 @@ extension DocumentWindowController: NSToolbarDelegate {
             let item = button(identifier, symbol: "sparkles", label: "Ask",
                               tip: "Ask about the document (⇧⌘J)",
                               action: #selector(toggleAskPanel(_:)))
-            item.image = AskGlyph.image()
+            // Drawn at the size the other buttons' symbols are, so the bubble
+            // stays one family with the two beside it.
+            (item.view as? ToolbarButton)?.show(AskGlyph.image(ToolbarButton.configuration))
             return item
 
         case .comments:
@@ -229,12 +233,9 @@ extension DocumentWindowController: NSToolbarDelegate {
             // The tip jar, last in the row: Imark is free and stays free, and this
             // is the one place in the window it says so. Target nil, like the
             // shortcuts: the page belongs to the app, not to one document.
-            let item = NSToolbarItem(itemIdentifier: identifier)
-            item.image = NSImage(systemSymbolName: "cup.and.saucer", accessibilityDescription: "Buy me a coffee")
-            item.label = "Buy me a coffee"
-            item.toolTip = "Imark is free, and stays free. If it saves you time, buy me a coffee"
-            item.action = #selector(AppDelegate.buyCoffee(_:))
-            return item
+            return button(identifier, symbol: "cup.and.saucer", label: "Buy me a coffee",
+                          tip: "Imark is free, and stays free. If it saves you time, buy me a coffee",
+                          action: #selector(AppDelegate.buyCoffee(_:)), toApp: true)
 
         case .export:
             // The share glyph promises a share sheet and opens the print panel
@@ -334,14 +335,22 @@ extension DocumentWindowController: NSToolbarDelegate {
         symbol: String,
         label: String,
         tip: String? = nil,
-        action: Selector
+        action: Selector,
+        toApp: Bool = false
     ) -> NSToolbarItem {
-        let item = NSToolbarItem(itemIdentifier: identifier)
-        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
+        // Nil walks the responder chain to the app delegate.
+        let target: AnyObject? = toApp ? nil : self
+        let button = ToolbarButton(symbol: symbol, label: label, target: target, action: action)
+        let item = ToolbarButtonItem(itemIdentifier: identifier)
+        item.view = button
         item.label = label
-        item.toolTip = tip ?? label
-        item.target = self
-        item.action = action
+        // On the view: a view-based item never shows the item's own tooltip.
+        button.toolTip = tip ?? label
+        // What the item is when the window is too narrow for it and it moves
+        // into the overflow menu.
+        let menu = NSMenuItem(title: label, action: action, keyEquivalent: "")
+        menu.target = target
+        item.menuFormRepresentation = menu
         return item
     }
 
