@@ -57,6 +57,7 @@ swift Support/test-anchors.swift
 swift Support/test-diagrams.swift
 swift Support/test-type-scale.swift
 swift Support/test-diagram-viewer.swift
+swift Support/test-tables.swift
 ```
 
 The rest of the suites, the ones a release runs:
