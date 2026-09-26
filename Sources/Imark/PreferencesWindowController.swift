@@ -72,21 +72,93 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         window.center()
 
         refresh()
+
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(windowBecameMain(_:)),
+                           name: NSWindow.didBecomeMainNotification, object: nil)
+        center.addObserver(self, selector: #selector(windowWillCloseSomewhere(_:)),
+                           name: NSWindow.willCloseNotification, object: nil)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("not supported") }
 
     static func show() {
+        // Looked up before Settings comes forward, which makes it the main
+        // window itself.
+        let reading = NSApp.orderedWindows.first { isDocument($0) && $0.isVisible }
+        // Only as it opens: brought forward again, it stays where it was put.
+        if shared.window?.isVisible != true, let reading { shared.centre(over: reading) }
         shared.showWindow(nil)
+        shared.sit(over: reading)
         shared.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private var isOpen = false
+
+    override func showWindow(_ sender: Any?) {
+        super.showWindow(sender)
+        isOpen = true
     }
 
     /// The name is committed on the way out as well as on ⏎ — closing a window
     /// with something typed in it and finding it forgotten is its own small
     /// betrayal.
-    func windowWillClose(_ notification: Notification) { commitAuthor() }
+    func windowWillClose(_ notification: Notification) {
+        commitAuthor()
+        isOpen = false
+        sit(over: nil)
+    }
+
+    // MARK: - Over the document
+
+    /// Settings is a child window of the document being read, so the window
+    /// server keeps it above that document and moves it along. As a window of
+    /// its own it went behind the document at the first click there, and ⌘Tab
+    /// or the Dock then brought back the document with Settings still open
+    /// somewhere under it. It follows whichever document becomes the main
+    /// window, so it is over the one you went to rather than left with the one
+    /// you came from. Only documents: a window opened from Settings has to be
+    /// able to come above it.
+    private func sit(over document: NSWindow?) {
+        guard let window, window.parent !== document else { return }
+        window.parent?.removeChildWindow(window)
+        guard let document else { return }
+        document.addChildWindow(window, ordered: .above)
+        // A child goes when its parent is minimised; moved to a document that
+        // is on screen, it comes back with it.
+        if isOpen, !window.isVisible { window.orderFront(nil) }
+    }
+
+    /// Over the middle of the document rather than of the screen, which may be
+    /// another display: Settings would open there and then be dragged along
+    /// with the document from there. Over a document hanging off the screen,
+    /// AppKit puts it back on the screen as it orders it in.
+    private func centre(over document: NSWindow) {
+        guard let window else { return }
+        let size = window.frame.size
+        window.setFrameOrigin(NSPoint(x: document.frame.midX - size.width / 2,
+                                      y: document.frame.midY - size.height / 2))
+    }
+
+    private static func isDocument(_ window: NSWindow) -> Bool {
+        window.windowController is DocumentWindowController
+    }
+
+    @objc private func windowBecameMain(_ notification: Notification) {
+        guard isOpen, let document = notification.object as? NSWindow, Self.isDocument(document) else { return }
+        sit(over: document)
+    }
+
+    /// Closing a window orders its child windows out without closing them:
+    /// Settings would vanish with the document, still open, and a name being
+    /// typed would never be kept. It stays instead, on its own.
+    @objc private func windowWillCloseSomewhere(_ notification: Notification) {
+        guard let closing = notification.object as? NSWindow, closing !== window,
+              closing === window?.parent else { return }
+        sit(over: nil)
+    }
 
     // MARK: - Groups
 
