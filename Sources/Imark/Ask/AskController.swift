@@ -342,7 +342,9 @@ final class AskController {
             }
         }
         if !menu.items.isEmpty { menu.addItem(.separator()) }
-        add("Assistants…", checked: false) { AssistantsWindowController.show() }
+        add("Assistants…", checked: false) { [weak self] in
+            AssistantsWindowController.show(over: self?.renderer.window)
+        }
 
         let point: NSPoint
         if let rect, let x = rect["x"] as? Double, let y = rect["y"] as? Double, let h = rect["height"] as? Double {

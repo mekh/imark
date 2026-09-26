@@ -99,6 +99,7 @@ enum AskTest {
         models()
         modelsWindow()
         draftsWindow()
+        try assistantsOverTheirWindow()
         store()
         try glyph()
         try page()
@@ -1142,6 +1143,63 @@ enum AskTest {
 
         if window.isVisible { window.close() }
         Settings.assistantsData = before
+    }
+
+    /// Over the window it was asked from, as Settings sits over the document.
+    /// Plain windows stand in for Settings: Settings starts Sparkle, which
+    /// cannot start here and says so in an alert nobody can press.
+    static func assistantsOverTheirWindow() throws {
+        print("▸ the Assistants window over the window it came from")
+        let controller = AssistantsWindowController.shared
+        guard let window = controller.window, let screen = NSScreen.main?.visibleFrame else {
+            return check("the Assistants window and a screen", false)
+        }
+        func plain(_ frame: NSRect) -> NSWindow {
+            let made = NSWindow(contentRect: frame, styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            made.isReleasedWhenClosed = false
+            made.orderFront(nil)
+            return made
+        }
+        let asker = plain(NSRect(x: screen.midX - 250, y: screen.midY - 300, width: 500, height: 600))
+        AssistantsWindowController.show(over: asker)
+        spin(0.2)
+        check("it opens as a child of the window it was asked from", window.parent === asker)
+        check("centred on it",
+              abs(window.frame.midX - asker.frame.midX) < 1 && abs(window.frame.midY - asker.frame.midY) < 1,
+              "at \(window.frame.midX), \(window.frame.midY); the window at \(asker.frame.midX), \(asker.frame.midY)")
+
+        let before = window.frame.origin
+        asker.setFrameOrigin(NSPoint(x: asker.frame.minX + 30, y: asker.frame.minY - 20))
+        spin(0.1)
+        check("it moves with that window", window.frame.origin == NSPoint(x: before.x + 30, y: before.y - 20),
+              "moved by \(window.frame.minX - before.x), \(window.frame.minY - before.y)")
+
+        let placed = window.frame.origin
+        let other = plain(NSRect(x: screen.minX + 40, y: screen.minY + 40, width: 400, height: 300))
+        AssistantsWindowController.show(over: other)
+        spin(0.1)
+        check("asked again from another window, it goes over that one",
+              window.parent === other && asker.childWindows?.contains(window) != true)
+        check("and stays where it was", window.frame.origin == placed)
+
+        let url = folder.appendingPathComponent("over.md")
+        try "# Over\n\nText.\n".write(to: url, atomically: true, encoding: .utf8)
+        let document = DocumentWindowController(url: url)
+        document.showWindow(nil)
+        spin(0.5)
+        other.close()
+        spin(0.1)
+        check("closing its window leaves it open", window.isVisible)
+        check("over the document in front", window.parent === document.window,
+              "parent \(window.parent?.title ?? "none")")
+        document.window?.close()
+        spin(0.1)
+        check("with no document left, it stays on its own", window.isVisible && window.parent == nil)
+
+        window.close()
+        check("closed, it is nobody's child", window.parent == nil && !window.isVisible)
+        asker.orderOut(nil)
+        asker.close()
     }
 
     // MARK: - Keeping chats
