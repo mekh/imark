@@ -15,6 +15,7 @@ private extension NSToolbarItem.Identifier {
     static let reviewSendBack = NSToolbarItem.Identifier("reviewSendBack")
     static let reviewApprove = NSToolbarItem.Identifier("reviewApprove")
     static let coffee = NSToolbarItem.Identifier("coffee")
+    static let ask = NSToolbarItem.Identifier("ask")
 }
 
 extension DocumentWindowController: NSToolbarDelegate {
@@ -50,9 +51,16 @@ extension DocumentWindowController: NSToolbarDelegate {
         let reading: [NSToolbarItem.Identifier] =
             [.toggleSidebar, .sidebarTrackingSeparator, .flexibleSpace,
              .editMode, .commentFile, .comments, .theme, .find, .export, .openIn, .coffee]
-        let availableReading = Settings.showsCommentingControls
+        var availableReading = Settings.showsCommentingControls
             ? reading
             : reading.filter { $0 != .commentFile }
+        // Ask sits right after the reading/editing switch, where the user put
+        // it, and before the comment buttons its bubble matches. Only when it is
+        // on: a button that could only say "turn me on in Settings" is chrome
+        // for nothing.
+        if Settings.askEnabled, let mode = availableReading.firstIndex(of: .editMode) {
+            availableReading.insert(.ask, at: mode + 1)
+        }
 
         // Editing keeps the switch and loses everything that is about the page:
         // a theme paints the rendered document, and a comment is written onto a
@@ -99,6 +107,14 @@ extension DocumentWindowController: NSToolbarDelegate {
         let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Comments")
         item.image = on ? image?.withSymbolConfiguration(.init(paletteColors: [.imarkAccent])) : image
         item.toolTip = on ? "Hide All Comments (⇧⌘C)" : "Show All Comments (⇧⌘C)"
+    }
+
+    /// Lit while the panel is open, the way Comments is lit in review mode.
+    func refreshAskButton() {
+        guard let item = window?.toolbar?.items.first(where: { $0.itemIdentifier == .ask }) else { return }
+        let on = ask.panelOpen
+        item.image = AskGlyph.image(color: on ? .imarkAccent : nil)
+        item.toolTip = on ? "Close the Ask panel (⇧⌘J)" : "Ask about the document (⇧⌘J)"
     }
 
     /// Which side of the switch is lit. A tinted glyph says "on" only to somebody
@@ -184,6 +200,13 @@ extension DocumentWindowController: NSToolbarDelegate {
             return button(identifier, symbol: "arrow.uturn.backward", label: "Revert",
                           tip: "Throw away your changes and read the file again",
                           action: #selector(revertDocument(_:)))
+
+        case .ask:
+            let item = button(identifier, symbol: "sparkles", label: "Ask",
+                              tip: "Ask about the document (⇧⌘J)",
+                              action: #selector(toggleAskPanel(_:)))
+            item.image = AskGlyph.image()
+            return item
 
         case .comments:
             // "Comments" alone names the subject, not the action, and left

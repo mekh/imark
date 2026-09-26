@@ -28,6 +28,7 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
     private let menuBar = NSButton()
     private let updates = NSButton()
     private let shortcuts = NSButton()
+    private let askRows = AskSettingsRows()
 
     private init() {
         let window = SettingsWindow(
@@ -54,6 +55,8 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         add(rows: commentRows(), to: grid)
         add(heading: "General", to: grid, first: false)
         add(rows: generalRows(), to: grid)
+        add(heading: "Ask", to: grid, first: false)
+        add(rows: askRows.rows(), to: grid)
 
         grid.column(at: 0).xPlacement = .trailing
 
@@ -288,6 +291,7 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         let owns = MarkdownType.imarkIsDefault
         makeDefault.isHidden = owns
         isDefault.isHidden = !owns
+        askRows.refresh()
     }
 
     // MARK: - Actions

@@ -12,6 +12,7 @@ import Translation
 /// from a button that does nothing.
 final class SelectionPopover {
     var onSaveComment: ((String, NoteColour) -> Void)?
+    var onAsk: (() -> Void)?
 
     private let popover = NSPopover()
     private let target = Target()
@@ -21,6 +22,7 @@ final class SelectionPopover {
     private lazy var actionsView = buildActions()
     private var rowButtons: [NSButton] = []
     private var showsCommentingControls = true
+    private var showsAsk = false
     private let composer = NSTextView()
     private let message = NSTextField(labelWithString: "")
 
@@ -105,6 +107,15 @@ final class SelectionPopover {
         dismiss()
     }
 
+    /// Adds or removes Ask, which only this fork has, when it is turned on or off.
+    func setAsking(_ shown: Bool) {
+        guard showsAsk != shown else { return }
+        showsAsk = shown
+        returnKeyboard()
+        actionsView = buildActions()
+        dismiss()
+    }
+
     private var isComposing = false
 
     private func show(panel: NSView) {
@@ -159,12 +170,18 @@ final class SelectionPopover {
             // button can say where the press is about to take you.
             ("globe", "Search \(Settings.searchEngine.label)", #selector(Target.searchWeb)),
         ]
+        if showsAsk {
+            // Not an SF Symbol: drawn below, as the toolbar has it.
+            actions.insert(("ask", "Ask (⌘J)", #selector(Target.ask)), at: 0)
+        }
         if showsCommentingControls {
             actions.insert(("bubble.left", "Comment", #selector(Target.comment)), at: 0)
         }
 
         let buttons = actions.map { spec -> NSButton in
-            let image = NSImage(systemSymbolName: spec.symbol, accessibilityDescription: spec.tip)
+            let image = spec.symbol == "ask"
+                ? AskGlyph.image(.init(pointSize: 14, weight: .regular))
+                : NSImage(systemSymbolName: spec.symbol, accessibilityDescription: spec.tip)
             let button = NSButton(image: image ?? NSImage(), target: target, action: spec.action)
             // Borderless buttons in a popover give no sign at all that they were
             // pressed. A recessed button lights up on hover and on click, which
@@ -282,6 +299,9 @@ final class SelectionPopover {
         }
         @objc func translate() {
             owner?.translateSelection()
+        }
+        @objc func ask() {
+            owner?.onAsk?()
         }
         @objc func searchWeb() {
             owner?.search()

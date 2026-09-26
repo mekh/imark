@@ -10,6 +10,7 @@ import katex from 'katex'
 import mermaid from 'mermaid'
 
 import math from './math.js'
+import { askAfterRender, installAsk } from './ask.js'
 import wikilink from './wikilink.js'
 import {
   attachComments,
@@ -1292,6 +1293,9 @@ async function render({ markdown, path, theme, preview, rail, frontMatter, comme
   // After the outline rail, never before: the marks are placed against its
   // ticks, and ticks that do not exist yet put every note at the top.
   buildNoteRail()
+  // After the notes, which wrap their quotes first: a chat's passage is found
+  // in the text as the reader sees it, notes and all.
+  askAfterRender()
   drawDiagrams(diagrams)
   await diagramsDrawn()
   if (token !== renderToken) return
@@ -1689,6 +1693,11 @@ function setUpBlockPlus() {
       || document.documentElement.dataset.commenting === 'false'
     ) return hidePlus()
     if (event.target === plusButton) return cancelHide()
+    // Over Ask's card, panel or marks the pointer is not in the margin of the
+    // text: finding the block by the pointer's height lit up whatever block
+    // sat level with it behind the panel, and moving along a line of the
+    // answer flicked the light between a list item and its whole list.
+    if (event.target.closest?.('.ask-card, .ask-panel, .ask-tip, .ask-mark')) return hidePlus()
     // Not while a selection is live: the popover is already open on words the
     // reader chose, and a second way in would fight it.
     if (hadSelection) return hidePlus()
@@ -2047,6 +2056,16 @@ window.imark = {
 installCommentHandlers()
 setUpBlockPlus()
 setUpDiagramViewer()
+window.imark.ask = installAsk({
+  bridge,
+  content,
+  keepingPlace,
+  selectionInfo,
+  lineRange,
+  glideTo,
+  topInset,
+  sourceLines: () => lastSource.split('\n'),
+})
 
 // KaTeX is imported for its side-effect-free API; keep a reference so the
 // bundler cannot tree-shake the font-bearing CSS away.

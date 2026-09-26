@@ -12,6 +12,8 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
 
     private let selectionPopover = SelectionPopover()
     private var selection: Selection?
+    /// Asking an assistant about the document. Only in this fork; see Ask/.
+    private(set) lazy var ask = AskController(renderer: content.renderer)
     /// The file as it was when we read it, and the moment we last wrote it
     /// ourselves — one guards against clobbering somebody else's edit, the
     /// other stops our own write from being announced as an outside change.
@@ -157,6 +159,10 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         selectionPopover.onSaveComment = { [weak self] body, colour in
             self?.saveComment(body, colour: colour)
         }
+        selectionPopover.onAsk = { [weak self] in self?.askAboutSelection(nil) }
+        ask.onKeep = { [weak self] chat, text, by in self?.keepAnswerAsNote(chat, text: text, by: by) }
+        ask.onPanel = { [weak self] _ in self?.refreshAskButton() }
+        ask.onOpenSettings = { PreferencesWindowController.show() }
         content.onShowComments = { [weak self] anchor in
             guard let self else { return }
             self.commentsList.show(self.notes, from: anchor)
@@ -225,6 +231,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         sidebar.resetOutlineState()
         refreshSiblings()
         load(landingAt: offset ?? 0, anchor: anchor, resuming: offset == nil && anchor == nil)
+        ask.show(target)
 
         watcher = FileWatcher(url: target) { [weak self] event in
             guard let self else { return }
@@ -261,6 +268,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         // The toolbar is rebuilt on every load, which resets the pencil to its
         // off face while the window is still in editing mode.
         refreshEditButton()
+        refreshAskButton()
 
         guard let source = try? String(contentsOf: url, encoding: .utf8) else {
             digest = nil
@@ -407,6 +415,9 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         case .noteCommand(let command):
             perform(command)
 
+        case .ask(let body):
+            ask.handle(body)
+
         case .comments(let found, let reviewing):
             notes = found
             noteCount = found.count
@@ -522,6 +533,55 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
             selectionPopover.reportCommentFailure(
                 (error as? LocalizedError)?.errorDescription ?? "Couldn't save the comment"
             )
+        }
+    }
+
+    // MARK: - Ask
+
+    /// ⌘J: a chat about the selection, or the panel when nothing is selected.
+    @objc func askAboutSelection(_ sender: Any?) {
+        guard Settings.askEnabled, !editMode else { return NSSound.beep() }
+        selectionPopover.dismiss()
+        content.renderer.focus()
+        ask.askAboutSelection()
+    }
+
+    @objc func toggleAskPanel(_ sender: Any?) {
+        guard Settings.askEnabled, !editMode else { return NSSound.beep() }
+        selectionPopover.dismiss()
+        content.renderer.focus()
+        ask.togglePanel()
+    }
+
+    /// An answer kept as a note on the passage it was about, written the way a
+    /// comment is: after the block, through the same stale-file check, onto the
+    /// same undo stack. Signed by the assistant, since the words are its.
+    func keepAnswerAsNote(_ chat: AskChat, text: String, by: String) {
+        guard !text.isEmpty, !editMode else { return NSSound.beep() }
+        let aboutDocument = chat.isAboutDocument || chat.blockEnd == nil
+        do {
+            snapshot("Note")
+            let index = try Comments.insert(
+                quote: aboutDocument ? "" : chat.quote,
+                body: text,
+                colour: Settings.noteColour,
+                after: chat.blockEnd ?? 0,
+                occurrence: chat.occurrence,
+                by: by,
+                on: Date(),
+                scope: aboutDocument ? .file : .block,
+                into: url,
+                expecting: stamp
+            )
+            lastWrite = Date()
+            sealSnapshot()
+            load()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                self?.content.renderer.revealNote(index)
+            }
+        } catch {
+            undoStack.discardLast()
+            report(error, doing: "keep the answer as a note")
         }
     }
 
@@ -905,6 +965,11 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         case #selector(nextComment(_:)), #selector(previousComment(_:)),
              #selector(exportComments(_:)):
             return noteCount > 0
+        case #selector(askAboutSelection(_:)):
+            return Settings.askEnabled && !editMode
+        case #selector(toggleAskPanel(_:)):
+            item.state = ask.panelOpen ? .on : .off
+            return Settings.askEnabled && !editMode
         default:
             return true
         }
@@ -1002,11 +1067,13 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
 
     @objc private func settingsChanged() {
         let rebuildToolbar = appliedCommentingControls != Settings.showsCommentingControls
+            || appliedAsking != Settings.askEnabled
         applySettings()
         if rebuildToolbar { buildToolbar() }
     }
 
     private var appliedCommentingControls: Bool?
+    private var appliedAsking: Bool?
 
     /// Everything the page and the editor take from the settings, in one place,
     /// so a window opened now and a window opened an hour ago cannot disagree.
@@ -1023,6 +1090,9 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         content.renderer.setCommentingControls(Settings.showsCommentingControls)
         selectionPopover.setCommentingControls(Settings.showsCommentingControls)
         appliedCommentingControls = Settings.showsCommentingControls
+        selectionPopover.setAsking(Settings.askEnabled)
+        appliedAsking = Settings.askEnabled
+        ask.configure()
         refreshThemeButton()
     }
 
