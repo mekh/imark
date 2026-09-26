@@ -178,7 +178,12 @@ enum HistoryTest {
               String(describing: taker(of: forward)))
         check("back is greyed out with nowhere to go", !isEnabled(back))
         check("so is forward", !isEnabled(forward))
-        check("the toolbar stands on the page", inset > 0, "\(inset)")
+        // Below it rather than under it, so the page has nothing of its own to
+        // keep out from behind the bar.
+        let pageTop = page.convert(page.bounds, to: nil).maxY
+        let barBottom = window.window?.contentLayoutRect.maxY ?? 0
+        check("the page starts below the toolbar", inset == 0 && pageTop <= barBottom + 0.5,
+              "inset \(inset), page top \(pageTop), toolbar from \(barBottom)")
 
         // 1. Follow the link to the Ukrainian heading. It lands under the
         //    toolbar, not behind it.

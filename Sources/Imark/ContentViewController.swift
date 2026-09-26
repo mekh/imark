@@ -14,10 +14,9 @@ final class ContentViewController: NSViewController {
     var onShowComments: ((NSView) -> Void)?
 
     private let findBar = NSVisualEffectView()
-    /// Sits behind the toolbar and blurs whatever scrolls under it. Without it a
-    /// transparent titlebar puts buttons straight on top of prose.
+    /// What the toolbar stands on. The title bar is transparent, so without it
+    /// the buttons would sit on whatever the window has behind them.
     private let header = NSVisualEffectView()
-    private var reportedInset: CGFloat = -1
     private let searchField = NSSearchField()
     private let counter = NSTextField(labelWithString: "")
     private let statusLeft = NSTextField(labelWithString: "")
@@ -33,9 +32,6 @@ final class ContentViewController: NSViewController {
         buildFindBar()
         let status = buildStatusBar()
 
-        // Back to front: the document runs the full height and everything else
-        // sits over it. The header is what makes that readable — it blurs the
-        // text passing underneath so the toolbar has something to stand on.
         for subview in [renderer, editor, header, findBar, status] {
             subview.translatesAutoresizingMaskIntoConstraints = false
             view.addSubview(subview)
@@ -57,20 +53,22 @@ final class ContentViewController: NSViewController {
 
             findBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             findBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            // Still below the toolbar rather than behind it: the window title
-            // used to sit on top of the search field. Only the document is
-            // meant to pass underneath.
+            // Below the toolbar rather than behind it: the window title used to
+            // sit on top of the search field.
             findBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             findHeight,
 
+            // Below the toolbar and the find bar rather than under them, like
+            // the editor. The web view follows the pointer over the whole of its
+            // frame and does not know what stands in front of it: with the page
+            // running under the bars, the pointer over their buttons took the
+            // text cursor, and the links and the `+` under them lit up for
+            // nothing anybody could click.
             renderer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             renderer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            renderer.topAnchor.constraint(equalTo: view.topAnchor),
+            renderer.topAnchor.constraint(equalTo: findBar.bottomAnchor),
             renderer.bottomAnchor.constraint(equalTo: status.topAnchor),
 
-            // The editor starts below the toolbar rather than under it: prose
-            // sliding under a blur reads as more page above, but a line of source
-            // disappearing behind glass just looks like a clipped line.
             editor.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             editor.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             editor.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
@@ -83,16 +81,8 @@ final class ContentViewController: NSViewController {
         ])
     }
 
-    /// Tells the page how much of its own top the toolbar is standing on. Read
-    /// from the safe area rather than hard-coded: the toolbar is a different
-    /// height with and without a window title, and taller again in full screen.
-    override func viewDidLayout() {
-        super.viewDidLayout()
-        let inset = view.safeAreaInsets.top
-        guard inset != reportedInset else { return }
-        reportedInset = inset
-        renderer.setTopInset(inset)
-
+    override func viewDidLoad() {
+        super.viewDidLoad()
         renderer.onMessage = { [weak self] message in
             if case .find(let count, let index) = message {
                 self?.updateCounter(count: count, index: index)
