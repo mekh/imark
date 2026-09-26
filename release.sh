@@ -151,6 +151,14 @@ if [ "${1:-}" != "--force" ]; then
 			$(find Sources/ImarkRender -name '*.swift') \
 			Support/test-selection.swift -o /tmp/imark-release-selection/run >/dev/null 2>&1 \
 		&& /tmp/imark-release-selection/run >/dev/null || die "the selection tests failed"
+	# The same, for the same reason. Nothing in it reaches a real assistant.
+	mkdir -p /tmp/imark-release-ask
+	swiftc -parse-as-library -I "$TEST_BIN" -I "$TEST_BIN/Modules" -F "$TEST_BIN" \
+			-Xlinker -rpath -Xlinker "$TEST_BIN" \
+			$(find Sources/Imark -name '*.swift' ! -name main.swift) \
+			$(find Sources/ImarkRender -name '*.swift') \
+			Support/test-ask.swift -o /tmp/imark-release-ask/run >/dev/null 2>&1 \
+		&& /tmp/imark-release-ask/run >/dev/null || die "the Ask tests failed"
 	# test-setup.sh needs an assembled app, so it runs after the build instead.
 
 	echo "clean tree, on main, in sync, tests pass"

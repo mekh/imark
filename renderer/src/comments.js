@@ -172,7 +172,10 @@ function textNodes(block) {
 /// into a dozen spans. Looking node by node found none of those and orphaned
 /// them without a word. Counting occurrences over the whole block also makes
 /// `nth=` mean the same thing here as it did when the note was written.
-function wrapQuote(block, quote, nth) {
+///
+/// Exported for Ask, which marks the passage a chat is about the same way, with
+/// a class of its own.
+export function wrapQuote(block, quote, nth, className = 'note-anchor') {
   if (!quote) return null
 
   const nodes = textNodes(block)
@@ -207,7 +210,7 @@ function wrapQuote(block, quote, nth) {
     range.setStart(piece.node, piece.from)
     range.setEnd(piece.node, piece.to)
     const span = document.createElement('span')
-    span.className = 'note-anchor'
+    span.className = className
     try {
       range.surroundContents(span)
     } catch {

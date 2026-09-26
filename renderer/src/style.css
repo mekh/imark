@@ -1388,3 +1388,1089 @@ img[data-blocked] {
   color: var(--secondary);
   opacity: 0.75;
 }
+
+/* ------------------------------------------------------------------ ask */
+
+/* Asking an assistant about a passage. Everything here takes the palette's own
+   tokens, so a chat reads as part of the page in every theme, light or dark.
+
+   Two sizes of text, on purpose. What is read — the question and the answer —
+   follows the reader's text size, as the document does: an answer set small
+   beside an 18-point document was hard work to read. What is chrome — labels,
+   buttons, the line of figures — stays small and fixed, like the note cards. */
+
+:root {
+  --ask-text: calc(var(--size-body) * 15 / 16);
+  --ask-card-width: min(calc(var(--size-body) * 28), calc(100vw - 32px));
+  /* Dragged by its edge; remembered by the page. Never so narrow that a table
+     cannot fit, never so wide that the document has nowhere to go. */
+  --ask-panel: clamp(320px, var(--ask-panel-width, calc(var(--size-body) * 25)), 62vw);
+}
+
+/* Outside #content, in page coordinates: the card and the marks scroll with
+   the text they belong to, and nothing in here is document text. No paint
+   containment: the children hang out of a box with no height. */
+.ask-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 0;
+  z-index: 9;
+  pointer-events: none;
+}
+
+.ask-layer > * {
+  pointer-events: auto;
+}
+
+/* Dotted rather than a note's solid underline: the words have been asked
+   about, not written on. */
+.ask-anchor {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-bottom: 1.5px dotted var(--accent);
+  border-radius: 2px;
+  padding: 0 1px;
+  cursor: pointer;
+}
+
+.ask-anchor.is-open {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* In the note dots' column, clear of the scroller macOS lays over the last
+   15 points of the window: out there a click scrolled instead of opening. */
+.ask-mark {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--accent);
+  opacity: 0.72;
+  cursor: pointer;
+  transition: opacity 0.12s ease, background 0.12s ease;
+}
+
+.ask-mark:hover,
+.ask-mark.is-open {
+  opacity: 1;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* The toolbar's own glyph, which Swift sends as a mask, in the mark's colour. */
+.ask-glyph {
+  display: block;
+  width: 17px;
+  height: 16px;
+  background: currentColor;
+  -webkit-mask: var(--ask-glyph) center / contain no-repeat;
+  mask: var(--ask-glyph) center / contain no-repeat;
+}
+
+/* An answer still arriving somewhere the reader is not looking. */
+.ask-mark.is-running svg,
+.ask-mark.is-running .ask-glyph {
+  animation: ask-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes ask-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Its own layer and its own layout: an answer growing inside the card, or the
+   panel, must not make WebKit lay out or repaint a long document around it. */
+.ask-card {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: var(--ask-card-width);
+  max-height: min(74vh, 760px);
+  padding: 12px 12px 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 22px rgb(0 0 0 / 12%);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.5;
+  contain: layout style paint;
+  will-change: transform;
+}
+
+.ask-head,
+.ask-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 24px;
+}
+
+.ask-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.ask-grow {
+  flex: 1;
+}
+
+.ask-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--secondary);
+  cursor: pointer;
+}
+
+.ask-icon:hover {
+  background: var(--code-bg);
+  color: var(--text);
+}
+
+.ask-icon.is-done {
+  color: var(--accent);
+}
+
+.ask-about {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--secondary);
+}
+
+.ask-about-label {
+  margin-right: 2px;
+}
+
+.ask-section {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.ask-section span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ask-section svg {
+  flex-shrink: 0;
+}
+
+.ask-quote {
+  font-size: 13px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-bottom: 1.5px dotted var(--accent);
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+.ask-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  overflow-y: auto;
+  /* Scrolled to its end, it stops: the document behind it stays where it was. */
+  overscroll-behavior: contain;
+  margin-right: -6px;
+  padding-right: 6px;
+}
+
+.ask-thread:empty {
+  display: none;
+}
+
+.ask-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ask-q {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.ask-bubble {
+  max-width: 88%;
+  padding: 0.45em 0.8em;
+  border-radius: 12px 12px 4px 12px;
+  background: var(--accent-soft);
+  font-size: var(--ask-text);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.ask-bubble:empty {
+  display: none;
+}
+
+.ask-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--secondary);
+}
+
+.ask-act {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ask-act svg {
+  flex-shrink: 0;
+}
+
+.ask-elapsed {
+  font-variant-numeric: tabular-nums;
+}
+
+.ask-fold {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--secondary);
+  cursor: pointer;
+}
+
+.ask-fold[aria-expanded='false'] svg:last-child {
+  transform: rotate(-90deg);
+}
+
+.ask-fold:hover {
+  color: var(--text);
+}
+
+.ask-spinner {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid color-mix(in srgb, var(--secondary) 35%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: ask-spin 0.8s linear infinite;
+}
+
+@keyframes ask-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The answer. Written for reading: the reader's size, the document's measure
+   of line height, and none of the document's own rules for tables and
+   headings, which are for a page, not for a chat. `break-word` and not
+   `anywhere`: the latter lets a table column shrink to a single letter. */
+.ask-answer {
+  font-size: var(--ask-text);
+  line-height: 1.6;
+  overflow-wrap: break-word;
+}
+
+.ask-answer > :first-child {
+  margin-top: 0;
+}
+
+.ask-answer > :last-child {
+  margin-bottom: 0;
+}
+
+.ask-answer p,
+.ask-answer ul,
+.ask-answer ol,
+.ask-answer pre,
+.ask-answer blockquote,
+.ask-answer table,
+.ask-answer dl {
+  margin: 0 0 0.7em;
+}
+
+.ask-answer h1,
+.ask-answer h2,
+.ask-answer h3,
+.ask-answer h4,
+.ask-answer h5,
+.ask-answer h6 {
+  margin: 0.9em 0 0.35em;
+  padding: 0;
+  border: 0;
+  font-size: 1em;
+  line-height: 1.4;
+  letter-spacing: 0;
+}
+
+.ask-answer ul,
+.ask-answer ol {
+  padding-left: 1.4em;
+}
+
+.ask-answer li {
+  margin-bottom: 0.25em;
+}
+
+.ask-answer blockquote {
+  padding-left: 0.8em;
+  border-left: 3px solid var(--border);
+  color: var(--secondary);
+}
+
+.ask-answer hr {
+  margin: 0.9em 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.ask-answer code {
+  font-size: 0.88em;
+}
+
+.ask-answer pre {
+  padding: 0.6em 0.8em;
+  border: 0;
+  border-radius: 6px;
+  background: var(--code-bg);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  font-size: 0.86em;
+  line-height: 1.5;
+}
+
+.ask-answer pre code {
+  background: none;
+  padding: 0;
+  font-size: 1em;
+}
+
+/* Laid out again when it does not fit (fitTables): two columns as pairs, a
+   term in bold over what it means; more as a card per row, each value under
+   the name of its column. */
+.ask-answer table.is-pairs,
+.ask-answer table.is-stacked {
+  display: block;
+  overflow: visible;
+}
+
+.ask-answer table.is-pairs thead,
+.ask-answer table.is-stacked thead {
+  display: none;
+}
+
+.ask-answer table.is-pairs tbody,
+.ask-answer table.is-stacked tbody,
+.ask-answer table.is-pairs tr,
+.ask-answer table.is-stacked tr,
+.ask-answer table.is-pairs td,
+.ask-answer table.is-stacked td {
+  display: block;
+}
+
+.ask-answer table.is-pairs tr,
+.ask-answer table.is-stacked tr {
+  padding: 0.45em 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.ask-answer table.is-pairs tr:first-child,
+.ask-answer table.is-stacked tr:first-child {
+  border-top: 1px solid var(--border);
+}
+
+.ask-answer table.is-pairs td,
+.ask-answer table.is-stacked td {
+  padding: 0.1em 0;
+  border: 0;
+}
+
+.ask-answer table.is-pairs td:first-child {
+  font-weight: 600;
+}
+
+.ask-answer table.is-stacked td::before {
+  content: attr(data-label);
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--secondary);
+}
+
+/* A table in an answer scrolls sideways inside the answer if it has to, and
+   otherwise wraps its cells the ordinary way. */
+.ask-answer table {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border-collapse: collapse;
+  font-size: 0.94em;
+  line-height: 1.45;
+}
+
+.ask-answer th,
+.ask-answer td {
+  padding: 0.4em 0.65em;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.ask-answer th {
+  background: var(--code-bg);
+  color: var(--text);
+  font-size: 1em;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.ask-cite {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 1.25em;
+  height: 1.25em;
+  margin: 0 1px;
+  padding: 0 0.3em;
+  border: 0;
+  border-radius: 0.65em;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: 600 0.7em/1 var(--font-body);
+  vertical-align: 0.2em;
+  cursor: pointer;
+}
+
+.ask-cite:hover {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.ask-error {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--note-red) 40%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--note-red) 8%, transparent);
+  font-size: 12.5px;
+}
+
+.ask-error-text {
+  display: flex;
+  gap: 8px;
+}
+
+.ask-error-text svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--note-red);
+}
+
+.ask-error-actions {
+  display: flex;
+  gap: 6px;
+  padding-left: 22px;
+}
+
+.ask-plain {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ask-link {
+  padding: 3px 6px;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ask-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: -4px;
+}
+
+.ask-meta {
+  margin-left: auto;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--secondary);
+  font: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ask-head .ask-meta,
+.ask-panel-head .ask-meta {
+  margin-left: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ask-meta:hover,
+.ask-meta[aria-expanded='true'] {
+  background: var(--code-bg);
+  color: var(--text);
+}
+
+.ask-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.ask-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ask-chip {
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ask-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ask-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 7px 7px 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.ask-box:focus-within {
+  border-color: var(--accent);
+}
+
+.ask-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.ask-box textarea {
+  flex: 1;
+  min-width: 0;
+  min-height: 1.5em;
+  padding: 2px 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--ask-text);
+  line-height: 1.5;
+  overscroll-behavior: contain;
+}
+
+.ask-box textarea::placeholder {
+  color: var(--secondary);
+  opacity: 0.85;
+}
+
+.ask-send {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 13px;
+  background: var(--accent);
+  color: var(--bg);
+  cursor: pointer;
+}
+
+.ask-send:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.ask-send.is-stop {
+  background: var(--text);
+}
+
+/* Two things share a narrow line: who answers, and what it may read. Both
+   give way with an ellipsis rather than run into each other. */
+.ask-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  margin-left: -6px;
+}
+
+.ask-model {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--secondary);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.ask-model:hover {
+  background: var(--code-bg);
+  color: var(--text);
+}
+
+.ask-model svg,
+.ask-sees svg {
+  flex-shrink: 0;
+}
+
+.ask-model-name,
+.ask-sees-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ask-sees {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--secondary);
+}
+
+.ask-hint {
+  font-size: 11px;
+  color: var(--secondary);
+}
+
+/* The panel takes its width from the page rather than covering it: the text
+   steps aside, and keepingPlace holds the line that was being read. */
+:root[data-ask-panel='open'] body {
+  padding-right: calc(var(--step) * 12 + var(--ask-panel));
+}
+
+.ask-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  box-sizing: border-box;
+  display: none;
+  flex-direction: column;
+  width: var(--ask-panel);
+  padding-top: var(--top-inset, 0px);
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.5;
+  contain: strict;
+  will-change: transform;
+  overscroll-behavior: contain;
+}
+
+:root[data-ask-panel='open'] .ask-panel {
+  display: flex;
+}
+
+/* Too narrow to share: the panel lies over the page instead of squeezing the
+   column to nothing. */
+@media (max-width: 760px) {
+  :root[data-ask-panel='open'] body {
+    padding-right: calc(var(--step) * 12);
+  }
+
+  .ask-panel {
+    width: min(var(--ask-panel), calc(100vw - 40px));
+    box-shadow: -8px 0 24px rgb(0 0 0 / 15%);
+  }
+}
+
+/* The edge to drag. Wider than the line it sits on, so it can be found. */
+.ask-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 7px;
+  z-index: 2;
+  cursor: col-resize;
+}
+
+.ask-resize:hover,
+.ask-resize.is-dragging {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+:root[data-ask-resizing] body {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.ask-panel-head {
+  padding: 10px 10px 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ask-chats {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  margin-left: -6px;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ask-chats:hover {
+  background: var(--code-bg);
+}
+
+.ask-count {
+  font-weight: 400;
+  color: var(--secondary);
+}
+
+.ask-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 45%;
+  padding: 6px;
+  border-bottom: 1px solid var(--border);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.ask-row-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 7px;
+}
+
+.ask-row-item.is-current {
+  background: var(--accent-soft);
+}
+
+.ask-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ask-row-item:not(.is-current) .ask-open:hover {
+  background: var(--code-bg);
+}
+
+.ask-row-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ask-row-quote {
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ask-row-when {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--secondary);
+}
+
+.ask-row-q {
+  font-size: 12px;
+  color: var(--secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Quiet, never hidden: the one way to remove a chat has to be findable. */
+.ask-row-delete {
+  opacity: 0.55;
+  margin-right: 4px;
+}
+
+.ask-row-item:hover .ask-row-delete {
+  opacity: 1;
+}
+
+.ask-list-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 4px 2px;
+}
+
+.ask-empty {
+  padding: 10px 8px;
+  font-size: 12px;
+  color: var(--secondary);
+}
+
+.ask-panel-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px 14px;
+}
+
+.ask-panel-body .ask-thread {
+  flex: 1;
+}
+
+.ask-panel-body .ask-composer {
+  margin-top: auto;
+}
+
+.ask-tip {
+  position: absolute;
+  z-index: 30;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 22px rgb(0 0 0 / 12%);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 12px;
+  line-height: 1.45;
+  contain: layout style paint;
+}
+
+.ask-tip-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.ask-stats {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 14px;
+  row-gap: 5px;
+}
+
+.ask-stat-label,
+.ask-stat-note,
+.ask-th,
+.ask-tip-note {
+  color: var(--secondary);
+}
+
+.ask-stat-value,
+.ask-table {
+  font-variant-numeric: tabular-nums;
+}
+
+.ask-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  color: var(--secondary);
+}
+
+.ask-meter-row {
+  display: flex;
+  justify-content: space-between;
+  font-variant-numeric: tabular-nums;
+}
+
+.ask-meter-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--code-bg);
+  overflow: hidden;
+}
+
+.ask-meter-bar > div {
+  height: 100%;
+  background: var(--accent);
+}
+
+.ask-table {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  column-gap: 12px;
+  row-gap: 6px;
+  align-items: baseline;
+}
+
+.ask-table > :not(:nth-child(4n + 1)) {
+  text-align: right;
+}
+
+.ask-cell-q {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ask-total {
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  font-weight: 600;
+}
+
+/* Where a citation points, lit for a moment as the page arrives there. */
+.ask-flash {
+  border-radius: 4px;
+  animation: ask-flash 1.8s ease-out;
+}
+
+@keyframes ask-flash {
+  0%,
+  35% {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+
+  100% {
+    background: transparent;
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
+/* Quick Look shares this page and asks nothing. */
+:root[data-preview='true'] .ask-layer,
+:root[data-preview='true'] .ask-panel,
+:root[data-preview='true'] .ask-tip {
+  display: none !important;
+}
+
+@media print {
+  .ask-layer,
+  .ask-panel,
+  .ask-tip {
+    display: none !important;
+  }
+
+  :root[data-ask-panel='open'] body {
+    padding-right: calc(var(--step) * 12);
+  }
+
+  .ask-anchor {
+    background: none;
+    border: 0;
+  }
+}

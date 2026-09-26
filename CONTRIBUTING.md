@@ -84,6 +84,12 @@ mkdir -p /tmp/imark-test-selection && swiftc -parse-as-library -I "$TEST_BIN" \
   $(find Sources/ImarkRender -name '*.swift') \
   Support/test-selection.swift -o /tmp/imark-test-selection/run \
   && /tmp/imark-test-selection/run
+mkdir -p /tmp/imark-test-ask && swiftc -parse-as-library -I "$TEST_BIN" \
+  -I "$TEST_BIN/Modules" -F "$TEST_BIN" -Xlinker -rpath -Xlinker "$TEST_BIN" \
+  $(find Sources/Imark -name '*.swift' ! -name main.swift) \
+  $(find Sources/ImarkRender -name '*.swift') \
+  Support/test-ask.swift -o /tmp/imark-test-ask/run \
+  && /tmp/imark-test-ask/run
 ```
 
 ## Where things are

@@ -211,6 +211,22 @@ enum Menu {
             keyEquivalent: "'"
         )
         previousComment.keyEquivalentModifierMask = [.command, .shift]
+
+        // Ask, which only this fork has. Greyed out until it is turned on in
+        // Settings, and there all the same, so ⌘/ lists it and the menu says
+        // where it would be.
+        menu.addItem(.separator())
+        menu.addItem(
+            withTitle: "Ask About Selection",
+            action: #selector(DocumentWindowController.askAboutSelection(_:)),
+            keyEquivalent: "j"
+        )
+        let askPanel = menu.addItem(
+            withTitle: "Ask Panel",
+            action: #selector(DocumentWindowController.toggleAskPanel(_:)),
+            keyEquivalent: "j"
+        )
+        askPanel.keyEquivalentModifierMask = [.command, .shift]
         return menu
     }
 }

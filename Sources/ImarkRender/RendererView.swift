@@ -28,6 +28,9 @@ public enum RendererMessage {
     case selectionCleared
     case comments(notes: [NoteSummary], reviewing: Bool)
     case noteCommand(NoteCommand)
+    /// Something from the Ask card or panel, passed through whole: what it
+    /// means is the app's business, not the renderer's.
+    case ask([String: Any])
 }
 
 /// Where a document was being read: the block under the toolbar, by the lines
@@ -331,6 +334,11 @@ public final class RendererView: NSView {
         webView.evaluateJavaScript("window.imark.findClear()")
     }
 
+    /// Calls into the page's Ask: `window.imark.ask.<function>(payload)`.
+    public func ask(_ function: String, _ payload: Any) {
+        call("window.imark.ask.\(function)", payload)
+    }
+
 
     private var isDarkMode: Bool {
         effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
@@ -536,6 +544,9 @@ public final class RendererView: NSView {
                 if let raw = body["url"] as? String, let url = URL(string: raw) {
                     owner.onMessage?(.openExternal(url))
                 }
+
+            case "ask":
+                owner.onMessage?(.ask(body))
 
             default:
                 break
