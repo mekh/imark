@@ -329,11 +329,17 @@ function placeMarks() {
 /// What the chat is about, and under which heading, on a line of its own: a
 /// long passage wraps, and a heading run on after it started the next line
 /// with a stray separator.
-function aboutLine(chat) {
+///
+/// In the panel the quote takes the page to the passage: the reader has often
+/// scrolled far from it by the time the answer is read. The card sits under
+/// the passage already. A span rather than a button, which would not wrap with
+/// the line it is on.
+function aboutLine(chat, mode) {
   const section = chat.section ? `<div class="ask-section">${icon('outline', 12)}<span>${escapeHtml(chat.section)}</span></div>` : ''
   if (!chat.quote) return `<div class="ask-about"><span>About the whole document</span></div>`
   const quote = chat.quote.length > 120 ? `${chat.quote.slice(0, 120)}…` : chat.quote
-  return `<div class="ask-about"><div><span class="ask-about-label">About</span> <span class="ask-quote">${escapeHtml(quote)}</span></div>${section}</div>`
+  const link = mode === 'panel' ? ' role="button" tabindex="0" data-action="about" title="Show this passage in the document"' : ''
+  return `<div class="ask-about"><div><span class="ask-about-label">About</span> <span class="ask-quote"${link}>${escapeHtml(quote)}</span></div>${section}</div>`
 }
 
 function activityHTML(chat, index) {
@@ -478,7 +484,7 @@ function fillChat(host, chat, mode) {
       ? `<div class="ask-head"><span class="ask-label">Ask</span><span class="ask-grow"></span>${total ? `<button type="button" class="ask-meta" data-action="chat-usage" aria-label="Usage of this chat">${escapeHtml(total)}</button>` : ''}${iconButton('panel', 'Move to the side panel', 'to-panel')}${iconButton('close', 'Close (esc)', 'close')}</div>`
       : ''
   const typed = host.querySelector('textarea')?.value ?? drafts.get(chat.id) ?? ''
-  host.innerHTML = `${head}${aboutLine(chat)}<div class="ask-thread">${threadHTML(chat)}</div>${composerHTML(chat)}`
+  host.innerHTML = `${head}${aboutLine(chat, mode)}<div class="ask-thread">${threadHTML(chat)}</div>${composerHTML(chat)}`
   host.dataset.chat = chat.id
   const field = host.querySelector('textarea')
   if (field) {
@@ -586,13 +592,43 @@ function goToLines(from) {
       span = size
     }
   }
-  if (!target) return
-  const top = target.getBoundingClientRect().top + window.scrollY - deps.topInset() - 96
-  deps.glideTo(Math.max(0, top))
-  target.classList.remove('ask-flash')
-  void target.offsetWidth
-  target.classList.add('ask-flash')
-  setTimeout(() => target.classList.remove('ask-flash'), 1800)
+  if (target) reveal(target, target)
+}
+
+/// The passage a chat is about: its words where they are marked, the block
+/// they are in lit up; the line they were on when they are gone.
+function showPassage(chat) {
+  const span = document.querySelector(`.ask-anchor[data-ask="${chat.id}"]`)
+  if (span) return reveal(span, span.closest('[data-line]') ?? span)
+  if (chat.line != null) goToLines(chat.line + 1)
+}
+
+/// Brings `el` a little under the top of the window and lights `lit` for a
+/// moment. A step Back returns from, as it does from a link to a heading: the
+/// reader was somewhere, and reading a chat is no reason to lose it. Already on
+/// screen, it only lights up — moving what is being looked at loses it too.
+function reveal(el, lit) {
+  revealSideways(el)
+  const box = el.getBoundingClientRect()
+  const inset = deps.topInset()
+  const seen = box.top >= inset + 8 && box.top + Math.min(box.height, 80) <= window.innerHeight - 8
+  if (!seen) deps.jumpTo(Math.max(0, box.top + window.scrollY - inset - 96))
+  lit.classList.remove('ask-flash')
+  void lit.offsetWidth
+  lit.classList.add('ask-flash')
+  setTimeout(() => lit.classList.remove('ask-flash'), 1800)
+}
+
+/// Words on a long line of code, or in a table wider than the column, are in a
+/// box that scrolls sideways: level with the window, they could still be past
+/// its right edge. The box brings their start in.
+function revealSideways(el) {
+  for (let box = el.parentElement; box && box !== deps.content(); box = box.parentElement) {
+    if (box.scrollWidth <= box.clientWidth + 1 || !/auto|scroll/.test(getComputedStyle(box).overflowX)) continue
+    const outer = box.getBoundingClientRect()
+    const inner = el.getBoundingClientRect()
+    if (inner.left < outer.left || inner.right > outer.right) box.scrollLeft += inner.left - outer.left - 24
+  }
 }
 
 function grow(field) {
@@ -1115,6 +1151,13 @@ function handleClick(event) {
     case 'cite':
       goToLines(Number(button.dataset.from))
       break
+    case 'about':
+      // A drag over the quote is a selection to copy, not a click.
+      if (chat && window.getSelection().isCollapsed) showPassage(chat)
+      // Clicked, it gives the keys back to the page: focused, it took Space
+      // for itself, and Space pages through the document it has just shown.
+      if (event.detail) button.blur()
+      break
     case 'usage':
       if (chat) toggleUsage(button, answerUsageHTML(chat, index))
       break
@@ -1153,6 +1196,12 @@ function handleKey(event) {
     }
     event.preventDefault()
     event.stopPropagation()
+    return
+  }
+  // The quote that links to the passage takes the keys a button does.
+  if ((event.key === 'Enter' || event.key === ' ') && event.target.matches?.('.ask-panel .ask-quote[data-action]')) {
+    event.preventDefault()
+    event.target.click()
     return
   }
   if (!field) return
