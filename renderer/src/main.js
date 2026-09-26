@@ -759,6 +759,161 @@ function addCopyButtons(root) {
   }
 }
 
+/* ---------------------------------------------------------------- tables */
+
+// WebKit shares a table's width out in proportion to each column's longest
+// line, so a column of paragraphs took nearly all of it. Beside one, `V-1`
+// broke at its hyphen, a label of seven words took four lines, and the
+// paragraphs ran past 120 characters a line. The page measures every column
+// itself and shares the width out the way it reads best: a column whose text
+// is short gets all of it on one line, the long ones split what is left
+// evenly, and none is wider than a comfortable line. A table that would only
+// have stretched its paragraphs stops short of the column instead.
+
+// The widest a column gets, in ems of its own text: about 75 characters.
+const COLUMN_MEASURE = 36
+// Text that fits in this many ems is never wrapped: an id broken at its hyphen
+// reads as two values. A table with no room for it scrolls sideways, which it
+// already does when its longest words do not fit.
+const COLUMN_SHORT = 6
+// A table that scrolls sideways anyway gives every column room for a few
+// words: squeezed to its longest word, a column reads one word to a line.
+const COLUMN_SCROLLED = 10
+// A note's underline and a find match each add a pixel either side of the
+// words they cover, which is enough to push the last one onto a line of its own.
+const COLUMN_SLACK = 2
+
+// What each table's columns need at the text size they were measured at, and
+// the width they were last shared out of. A new column width is shared out
+// from what was measured; a new text size is measured again.
+const columnNeeds = new WeakMap()
+const columnRooms = new WeakMap()
+const awaitedImages = new WeakSet()
+const tablesAwaitingFonts = new Set()
+
+const total = (widths) => widths.reduce((sum, width) => sum + width, 0)
+
+function sizeTables(root) {
+  const found = [...root.querySelectorAll('table')]
+    // The columns are read off the first row. A span puts one cell across
+    // several of them, and a table written in HTML can have rows of any
+    // length; those, and tables inside tables, are left to WebKit.
+    .filter((table) => table.rows.length && !table.parentElement.closest('table'))
+    .filter((table) => !table.querySelector('table, [colspan], [rowspan]'))
+    .filter((table) => [...table.rows].every((row) => row.cells.length === table.rows[0].cells.length))
+    .map((table) => ({ table, font: parseFloat(getComputedStyle(table).fontSize) }))
+  const stale = found.filter(({ table, font }) => columnNeeds.get(table)?.font !== font)
+
+  // Two layouts for all of them rather than two for each table. At its
+  // narrowest a column is as wide as its longest word; at its widest every
+  // cell in it is one line. The narrowest is written before anything is read,
+  // so a render lays the new page out once with them, not first as it came.
+  // A width shared out before is cleared, or it reads back as a need.
+  for (const { table } of stale) {
+    setColumns(table, null)
+    table.style.width = 'min-content'
+  }
+  for (const entry of found) entry.room = roomFor(entry.table)
+  const least = stale.map(({ table }) => columnWidths(table))
+  for (const { table } of stale) table.style.width = 'max-content'
+  const most = stale.map(({ table }) => columnWidths(table))
+  stale.forEach(({ table, font }, index) => {
+    table.style.width = ''
+    columnNeeds.set(table, { font, least: least[index], most: most[index] })
+    columnRooms.delete(table)
+    awaitImages(table)
+  })
+  awaitFonts(stale.filter(({ table }) => table.querySelector('.katex')))
+
+  for (const { table, room } of found) {
+    if (columnRooms.get(table) === room) continue
+    columnRooms.set(table, room)
+    setColumns(table, shareOut(columnNeeds.get(table), room))
+  }
+}
+
+/// The width the table may take: its parent's, as `width: 100%` reads it. Not
+/// the table's own, which is the width it was last given.
+function roomFor(table) {
+  const parent = table.parentElement
+  const { paddingLeft, paddingRight } = getComputedStyle(parent)
+  return parent.clientWidth - parseFloat(paddingLeft) - parseFloat(paddingRight)
+}
+
+const columnWidths = (table) => [...table.rows[0].cells].map((cell) => cell.getBoundingClientRect().width)
+
+/// An image that arrives after the measuring changes what its column needs.
+function awaitImages(table) {
+  for (const image of table.querySelectorAll('img')) {
+    if (image.complete || awaitedImages.has(image)) continue
+    awaitedImages.add(image)
+    const again = () => {
+      columnNeeds.delete(table)
+      sizeTables(content())
+    }
+    image.addEventListener('load', again, { once: true })
+    image.addEventListener('error', again, { once: true })
+  }
+}
+
+/// And so does a font that is still loading: math is set in KaTeX's own,
+/// which arrives after the first layout that uses it.
+function awaitFonts(withMath) {
+  if (document.fonts.status !== 'loading') return
+  const waiting = tablesAwaitingFonts.size > 0
+  for (const { table } of withMath) tablesAwaitingFonts.add(table)
+  if (waiting || !tablesAwaitingFonts.size) return
+  document.fonts.ready.then(() => {
+    for (const table of tablesAwaitingFonts) columnNeeds.delete(table)
+    tablesAwaitingFonts.clear()
+    sizeTables(content())
+  })
+}
+
+/// The width of each column, or nothing when WebKit's own layout is already
+/// the one wanted: every column on one line, and none of them too long.
+function shareOut({ font, least, most }, room) {
+  const whole = most.map((width) => Math.ceil(width) + COLUMN_SLACK)
+  const floor = least.map((width, i) => Math.max(width, Math.min(whole[i], COLUMN_SHORT * font)))
+  const wanted = whole.map((width, i) => Math.max(floor[i], Math.min(width, COLUMN_MEASURE * font)))
+  if (total(whole) <= room && wanted.every((width, i) => width >= whole[i])) return null
+  if (total(floor) >= room) return floor.map((width, i) => Math.max(width, Math.min(whole[i], COLUMN_SCROLLED * font)))
+  if (total(wanted) <= room) return wanted
+  // The long columns share what is left at one width, found by halving: each
+  // column is that wide, or less if it wants less, or more if its floor is.
+  const at = (level) => wanted.map((width, i) => Math.max(floor[i], Math.min(width, level)))
+  let low = 0
+  let high = Math.max(...wanted)
+  for (let step = 0; step < 30; step += 1) {
+    const level = (low + high) / 2
+    if (total(at(level)) > room) high = level
+    else low = level
+  }
+  return at(low)
+}
+
+/// Written on the first row, which is enough for WebKit to size the whole
+/// column; the stylesheet turns them into widths on screen only.
+function setColumns(table, widths) {
+  const cells = table.rows[0].cells
+  for (let i = 0; i < cells.length; i += 1) {
+    if (widths) cells[i].style.setProperty('--column-width', `${widths[i]}px`)
+    else cells[i].style.removeProperty('--column-width')
+  }
+  if (widths) table.style.setProperty('--table-width', `${total(widths)}px`)
+  else table.style.removeProperty('--table-width')
+}
+
+// A narrower window, the sidebar, the note rail: anything that changes the
+// column changes how its tables share it. Only the width counts; every render
+// changes the height.
+let columnWidth = 0
+new ResizeObserver(([entry]) => {
+  if (entry.contentRect.width === columnWidth) return
+  columnWidth = entry.contentRect.width
+  sizeTables(content())
+}).observe(document.getElementById('content'))
+
 /* ---------------------------------------------------------------- render */
 
 const content = () => document.getElementById('content')
@@ -802,6 +957,9 @@ async function render({ markdown, path, theme, preview, rail, frontMatter, comme
     ? renderFrontMatter(data) + md.render(clean)
     : `${renderFrontMatter(data)}<p class="empty">This file is empty</p>`
   if (token !== renderToken) return
+  // Before the notes: their dots are placed against rows that are as tall as
+  // they are going to be.
+  sizeTables(root)
 
   const notes = attachComments(root, comments)
   restoreNoteState()
@@ -1340,6 +1498,7 @@ window.imark = {
   setWidth(width) {
     keepingPlace(() => {
       document.documentElement.dataset.width = width
+      sizeTables(content())
     })
   },
   setFrontMatter,
@@ -1359,6 +1518,7 @@ window.imark = {
   setTextScale(scale) {
     keepingPlace(() => {
       document.documentElement.style.setProperty('--size-body', `${scale}px`)
+      sizeTables(content())
     })
   },
   /// How much of the top of the page the toolbar is standing on. Everything

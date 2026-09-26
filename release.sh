@@ -97,6 +97,7 @@ if [ "${1:-}" != "--force" ]; then
 	swift Support/test-plus.swift >/dev/null 2>&1 || die "the margin button tests failed"
 	swift Support/test-text-size.swift >/dev/null 2>&1 || die "the text size tests failed"
 	swift Support/test-pieces.swift >/dev/null 2>&1 || die "the list and table note tests failed"
+	swift Support/test-tables.swift >/dev/null 2>&1 || die "the table column tests failed"
 	swift Support/test-front-matter.swift >/dev/null 2>&1 || die "the front matter tests failed"
 	Support/test-review.sh >/dev/null 2>&1 || die "the review round trip tests failed"
 	swiftc -parse-as-library -I "$TEST_BIN" -I "$TEST_BIN/Modules" -F "$TEST_BIN" \

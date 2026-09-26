@@ -442,6 +442,21 @@ th {
   border-bottom-width: 1.5px;
 }
 
+/* Shared out by `sizeTables()` in main.js. The table stops at the sum of its
+   columns, or WebKit spreads what is left over them all. Each column gets a
+   minimum as well as a width: in an automatic table layout a width is only
+   where a column starts, and a table short of room squeezes it below that
+   rather than scrolling. On screen only, since paper is not as wide as the
+   window the widths were worked out for. */
+@media screen {
+  table { width: min(100%, var(--table-width, 100%)); }
+
+  th, td {
+    width: var(--column-width);
+    min-width: var(--column-width);
+  }
+}
+
 /* ------------------------------------------------------------------ code */
 
 code {
