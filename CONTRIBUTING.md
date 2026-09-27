@@ -55,6 +55,7 @@ swift Support/test-plus.swift
 swift Support/test-text-size.swift
 swift Support/test-pieces.swift
 swift Support/test-anchors.swift
+swift Support/test-preview.swift
 swift Support/test-diagrams.swift
 swift Support/test-type-scale.swift
 swift Support/test-diagram-viewer.swift
