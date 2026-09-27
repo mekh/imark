@@ -1006,7 +1006,9 @@ let scrollQueued = false
 // in the history, and the app cannot ask the page on the way out. Told on every
 // scroll event, which WebKit already sends at most once a frame — waiting for
 // the scrolling to stop was a timer, and timers are held back in a window
-// WebKit thinks nobody is looking at.
+// WebKit thinks nobody is looking at. Not from the frame callback below either:
+// that is as many messages (one a frame, measured, at 6.5 µs each to the page),
+// and in such a window frame callbacks do not run at all.
 function reportPlace() {
   bridge({ type: 'scrolled', y: restingAt() })
 }
