@@ -94,6 +94,7 @@ enum HistoryTest {
         - [The other document](B.md)
         - [A heading in the other document](B.md#розділ-b)
         - [A heading in this one, by its file name](A.md#кінець)
+        - [This one again, by its file name](A.md)
 
         \(filler)
 
@@ -268,6 +269,24 @@ enum HistoryTest {
         press(back)
         spin(0.8)
         check("and back is where it was followed from", near(scrollY(), 0), "\(scrollY())")
+
+        // 11. The same document by another spelling of its path is still the
+        //     page on screen. The page resolves every link it sends, but a
+        //     window can be handed a path with a `.` in it from outside.
+        let dotted = URL(fileURLWithPath: folder.path + "/./A.md")
+        window.show(dotted, pushingHistory: true)
+        spin(1.0)
+        _ = evaluate("window.scrollTo(0, 600)")
+        spin(0.5)
+        _ = evaluate("document.querySelector('a[href$=\"/A.md\"]').click()")
+        spin(1.0)
+        check("a link to this file by its name opens it", window.url == a, window.url.path)
+        _ = evaluate("document.querySelector('h1').dataset.untouched = 'yes'")
+        press(back)
+        spin(0.8)
+        check("back to the other spelling is a scroll", near(scrollY(), 600), "\(scrollY())")
+        check("not a reload",
+              (evaluate("document.querySelector('h1').dataset.untouched") as? String) == "yes")
 
         window.close()
     }
