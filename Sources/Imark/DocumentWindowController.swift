@@ -881,9 +881,11 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
 
     /// A place in the document on screen is a scroll, not a reload: the page
     /// is already there. Unless the editor is up — Back puts it down on the way
-    /// to any place, the same as it does for another file.
+    /// to any place, the same as it does for another file. Compared the way a
+    /// link to a heading is: the same file by another spelling of its path, with
+    /// a `.` or a `..` in it, is still the page on screen.
     private func visit(_ place: Place) {
-        guard place.url == url, !editMode else {
+        guard place.url.standardizedFileURL == url.standardizedFileURL, !editMode else {
             return show(place.url, pushingHistory: false, at: place.offset)
         }
         scrollOffset = place.offset
