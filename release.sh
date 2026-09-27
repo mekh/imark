@@ -96,7 +96,7 @@ if [ "${1:-}" != "--force" ]; then
 		&& /tmp/imark-release-editor >/dev/null || die "the editor tests failed"
 	# In a folder of its own: it puts the renderer beside itself to serve it.
 	mkdir -p /tmp/imark-release-history
-	swiftc -parse-as-library -I "$TEST_BIN/Modules" -F "$TEST_BIN" \
+	swiftc -parse-as-library -I "$TEST_BIN" -I "$TEST_BIN/Modules" -F "$TEST_BIN" \
 			-Xlinker -rpath -Xlinker "$TEST_BIN" \
 			$(find Sources/Imark -name '*.swift' ! -name main.swift) \
 			$(find Sources/ImarkRender -name '*.swift') \
