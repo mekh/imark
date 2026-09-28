@@ -108,6 +108,11 @@ const DOC = [
   // 9: math, set in fonts that arrive after the first layout.
   '| Formula | Note |', '|---|---|',
   `| $\\\\sum_{i=1}^{n} x_i^2 + \\\\int_0^1 f(x)\\\\,dx$ | ${paragraph(3)} |`, '',
+  // 10: a digest, which has nowhere to break and is wider than an even share,
+  // beside two columns of paragraphs.
+  '| Digest | Before | After |', '|---|---|---|',
+  `| 2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae | ${paragraph(3)} | ${paragraph(3)} |`,
+  `| D-2 | ${paragraph(2)} | ${paragraph(2)} |`, '',
 ].join('\\n')
 
 document.documentElement.dataset.width = 'wide'
@@ -115,7 +120,7 @@ await window.imark.render({ markdown: DOC, path: '/tmp/t.md', theme: 'dark' })
 await sleep(300)
 
 const results = {}
-const [ids, pair, small, label, crowded, spans, listed, pictured, noted, math] = tables()
+const [ids, pair, small, label, crowded, spans, listed, pictured, noted, math, digested] = tables()
 
 // 1. Short text stays on one line beside a column of paragraphs.
 results.idsStayOnOneLine = oneLine(column(ids, 0))
@@ -154,14 +159,21 @@ const dot = document.querySelector('.note-dot')
 const lastRow = noted.rows[noted.rows.length - 1]
 results.aNoteSitsBesideItsRow =
   !!dot && Math.abs(dot.getBoundingClientRect().top - lastRow.getBoundingClientRect().top) < 8
+// 11. A word with nowhere to break gets its column all the width it needs,
+//     learnt after the first layout; the columns beside it share the rest,
+//     and the table still fits rather than scrolling.
+const [digest, before, after] = [...digested.rows[0].cells]
+results.aLongWordGetsItsWholeWidth =
+  width(digest) > width(before) + 1 && Math.abs(width(before) - width(after)) < 1 &&
+  digested.scrollWidth <= digested.clientWidth + 1
 
-// 11. With the whole window, one long column stops short of it rather than
+// 12. With the whole window, one long column stops short of it rather than
 //     running on.
 window.imark.setWidth('full')
 results.oneLongColumnStopsShort = comfortable(label, 1) && width(label) < room(label) - 100
 results.paragraphsStayComfortableAtFullWidth = comfortable(ids, 2) && comfortable(pair, 1)
 
-// 12. A narrow column reshares, and a table with no room for its short text
+// 13. A narrow column reshares, and a table with no room for its short text
 //     scrolls sideways rather than breaking it.
 window.imark.setWidth('narrow')
 results.aNarrowColumnReshares = width(ids) <= room(ids) + 0.5 && oneLine(column(ids, 0))
@@ -171,14 +183,14 @@ results.aCrowdedTableKeepsItsIdsWhole = oneLine(column(crowded, 0))
 const words = (cell) => cell.textContent.trim().split(/\\s+/).length
 results.aCrowdedTableKeepsAFewWordsToALine = column(crowded, 1).slice(1).every((cell) => lines(cell) < words(cell))
 
-// 13. A bigger text size is measured again.
+// 14. A bigger text size is measured again.
 window.imark.setTextScale(24)
 results.biggerTextIsMeasuredAgain =
   oneLine(column(ids, 0)) && width(ids) <= room(ids) + 0.5 && comfortable(ids, 2)
 window.imark.setTextScale(16)
 window.imark.setWidth('normal')
 
-// 14. Every window is sent every setting on any change in Settings. The ones
+// 15. Every window is sent every setting on any change in Settings. The ones
 //     that did not change write nothing into the page.
 let writes = 0
 const watcher = new MutationObserver((records) => { writes += records.length })

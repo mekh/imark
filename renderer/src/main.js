@@ -1251,31 +1251,56 @@ function sizeTables(root) {
     .map((table) => ({ table, font: parseFloat(getComputedStyle(table).fontSize) }))
   const stale = found.filter(({ table, font }) => columnNeeds.get(table)?.font !== font)
 
-  // Two layouts for all of them rather than two for each table. At its
-  // narrowest a column is as wide as its longest word; at its widest every
-  // cell in it is one line. The narrowest is written before anything is read,
-  // so a render lays the new page out once with them, not first as it came.
-  // A width shared out before is cleared, or it reads back as a need.
+  // One layout for all of them rather than one for each table. At its widest
+  // every cell in a column is one line. That is written before anything is
+  // read, so a render lays the new page out once with it, not first as it
+  // came. A width shared out before is cleared, or it reads back as a need.
   for (const { table } of stale) {
     setColumns(table, null)
-    table.style.width = 'min-content'
+    table.style.width = 'max-content'
   }
   for (const entry of found) entry.room = roomFor(entry.table)
-  const least = stale.map(({ table }) => columnWidths(table))
-  for (const { table } of stale) table.style.width = 'max-content'
   const most = stale.map(({ table }) => columnWidths(table))
   stale.forEach(({ table, font }, index) => {
     table.style.width = ''
-    columnNeeds.set(table, { font, least: least[index], most: most[index] })
+    // How narrow each column can go is learnt below, once it is given less.
+    columnNeeds.set(table, { font, least: most[index].map(() => 0), most: most[index] })
     columnRooms.delete(table)
     awaitImages(table)
   })
   awaitFonts(stale.filter(({ table }) => table.querySelector('.katex')))
 
-  for (const { table, room } of found) {
-    if (columnRooms.get(table) === room) continue
-    columnRooms.set(table, room)
-    setColumns(table, shareOut(columnNeeds.get(table), room))
+  let given = []
+  for (const entry of found) {
+    if (columnRooms.get(entry.table) === entry.room) continue
+    columnRooms.set(entry.table, entry.room)
+    entry.widths = shareOut(columnNeeds.get(entry.table), entry.room)
+    setColumns(entry.table, entry.widths)
+    if (entry.widths) given.push(entry)
+  }
+
+  // How narrow a column can go is its longest word. Measuring that took a
+  // layout of its own, every paragraph one word to a line, and most of what
+  // the sizing cost: it added 139 ms to a render of a document with 137
+  // tables, about 70 without that layout. WebKit never makes a column
+  // narrower than its longest word, so one that comes out wider than it was
+  // given has said what the word needs, and its table is shared out again.
+  // The layout that says so is the one the page makes anyway. Sharing out
+  // again can give another column less than before, so it looks again, three
+  // times at most; one pass settled every table in that document.
+  for (let pass = 0; given.length && pass < 3; pass += 1) {
+    given = given.filter((entry) => {
+      const needs = columnNeeds.get(entry.table)
+      const actual = columnWidths(entry.table)
+      const short = actual.map((width, i) => width > entry.widths[i] + 0.5)
+      if (!short.includes(true)) return false
+      short.forEach((isShort, i) => {
+        if (isShort) needs.least[i] = Math.min(actual[i], needs.most[i])
+      })
+      entry.widths = shareOut(needs, entry.room)
+      setColumns(entry.table, entry.widths)
+      return entry.widths !== null
+    })
   }
 }
 
