@@ -9,6 +9,9 @@ import Foundation
 /// starts — do not fire for every question; and it runs in a folder of its
 /// own, so no project's CLAUDE.md comes along and its sessions stay out of the
 /// reader's projects.
+///
+/// Two locks stand behind its tools being off: `dontAsk` refuses what no rule
+/// allows, and `AskHook` refuses any tool but the three, an allowed one too.
 final class ClaudeCodeTransport: AgentTransport {
     override class var agentName: String { "Claude Code" }
     override func makeParser(for request: AskRequest, resume: Bool) -> any AgentStreamParser { ClaudeStreamParser() }
@@ -36,7 +39,7 @@ final class ClaudeCodeTransport: AgentTransport {
 
     static func arguments(for request: AskRequest, resume: Bool) -> [String] {
         let server: [String: Any] = [
-            "command": mcpExecutable ?? "",
+            "command": appExecutable ?? "",
             "args": [AskMCPServer.flag, request.document.path],
         ]
         let config = ["mcpServers": [AskMCPServer.name: server]]
@@ -49,6 +52,8 @@ final class ClaudeCodeTransport: AgentTransport {
             "--tools", "",
             "--mcp-config", json, "--strict-mcp-config",
             "--allowedTools", AskMCPServer.qualifiedToolNames.joined(separator: ","),
+            "--permission-mode", "dontAsk",
+            "--settings", settings(hook: AskHook.command(executable: appExecutable ?? "")),
             "--system-prompt", AskPrompt.system(tools: true),
             "--setting-sources", "",
             "--disable-slash-commands",
@@ -60,6 +65,19 @@ final class ClaudeCodeTransport: AgentTransport {
     }
 
     static func prompt(for request: AskRequest) -> String { conversation(for: request) }
+
+    /// The hook as this run's own settings, which `--setting-sources ""` does
+    /// not leave out. The matcher skips the three, so the hook starts only for
+    /// a tool that should not be there.
+    static func settings(hook: String) -> String {
+        let names = DocumentTools.definitions.map(\.name).joined(separator: "|")
+        let settings: [String: Any] = ["hooks": ["PreToolUse": [[
+            "matcher": "^(?!mcp__\(AskMCPServer.name)__(\(names))$)",
+            "hooks": [["type": "command", "command": hook]],
+        ]]]]
+        return (try? JSONSerialization.data(withJSONObject: settings, options: .withoutEscapingSlashes))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+    }
 }
 
 /// Turns Claude Code's `stream-json` output into Ask's events, a line at a time.

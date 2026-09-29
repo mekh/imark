@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Asks Codex, through its own `codex exec`.
@@ -8,8 +9,8 @@ import Foundation
 /// `config.toml` is not loaded, so their MCP servers, hooks and model choices
 /// stay out; the sandbox is read-only, and Codex asks nothing of anybody in
 /// exec, so a write it tried would be refused. Two things cannot be switched
-/// off: its patch tool, which the sandbox refuses, and the reader's global
-/// `~/.codex/AGENTS.md`, which it always reads.
+/// off: its patch tool, which the sandbox refuses and so does `AskHook`, and
+/// the reader's global `~/.codex/AGENTS.md`, which it always reads.
 ///
 /// The document's server is required, so Codex waits for it rather than
 /// starting the first turn without it. Settings are given with `-c` on every
@@ -34,7 +35,7 @@ final class CodexTransport: AgentTransport {
     }
 
     static func arguments(for request: AskRequest, resume: Bool) -> [String] {
-        let server = "{command=\(toml(mcpExecutable ?? "")), args=[\(toml(AskMCPServer.flag)), \(toml(request.document.path))], "
+        let server = "{command=\(toml(appExecutable ?? "")), args=[\(toml(AskMCPServer.flag)), \(toml(request.document.path))], "
             + "required=true, default_tools_approval_mode=\"approve\", omit_tools_from=[\"deferred\"]}"
         var arguments = [
             "exec", "--json", "--ignore-user-config", "--skip-git-repo-check",
@@ -45,6 +46,7 @@ final class CodexTransport: AgentTransport {
             "-c", "project_doc_max_bytes=0",
             "-c", "agents.enabled=false",
             "-c", "tools.experimental_request_user_input.enabled=false",
+            "-c", hooks(AskHook.command(executable: appExecutable ?? "")),
         ]
         // As settings rather than --disable: an unknown name there stops Codex
         // with an error, here it only warns, and the names change between
@@ -57,6 +59,32 @@ final class CodexTransport: AgentTransport {
         // The question comes on standard input.
         arguments.append("-")
         return arguments
+    }
+
+    /// The hook, as `-c` has it. `*`: Codex's matchers have no look-ahead to
+    /// leave the three out, so the hook sees every call and picks. A hook from
+    /// `-c` runs only once trusted; trusted by its own hash it is trusted
+    /// alone, where `--dangerously-bypass-hook-trust` would trust every hook
+    /// Codex finds.
+    static func hooks(_ command: String) -> String {
+        "hooks={PreToolUse=[{matcher=\"*\", hooks=[{type=\"command\", command=\(toml(command))}]}], "
+            + "state={\(toml(hookKey))={trusted_hash=\(toml(trustedHash(of: command)))}}}"
+    }
+
+    /// Where Codex keeps the trust of a hook given with `-c`: a made-up file
+    /// for the flags, the event, and the hook's place in them.
+    static let hookKey = "/<session-flags>/config.toml:pre_tool_use:0:0"
+
+    /// What Codex trusts a hook by: SHA-256 of the hook with its defaults
+    /// filled in, as JSON with sorted keys.
+    static func trustedHash(of command: String) -> String {
+        let hook: [String: Any] = [
+            "event_name": "pre_tool_use", "matcher": "*",
+            "hooks": [["type": "command", "command": command, "timeout": 600, "async": false]],
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: hook, options: [.sortedKeys, .withoutEscapingSlashes])
+        else { return "" }
+        return "sha256:" + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     /// A TOML basic string: what `-c` takes a value as.

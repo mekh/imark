@@ -11,11 +11,14 @@
 //     Support/test-ask.swift -o "$OUT/ask/run" && "$OUT/ask/run"
 //
 // A folder of its own, because the renderer is put beside the executable to be
-// served from there. Nothing here reaches a real assistant: Claude Code is a
-// shell script that prints what the real one printed, and the APIs are a
-// stand-in URL protocol. Chats go to a folder of the test's own.
+// served from there. Nothing here reaches a real model: Claude Code is a shell
+// script that prints what the real one printed, and the APIs are a stand-in
+// URL protocol. The real Claude Code and Codex, when installed, answer a
+// stand-in model on localhost, from a home of the suite's own. Chats go to a
+// folder of the test's own.
 
 import AppKit
+import Network
 import WebKit
 
 @main
@@ -73,6 +76,9 @@ enum AskTest {
     """
 
     static func main() throws {
+        // The real agents start this executable as the document's server and as
+        // their hook, the way they start the app.
+        AgentTransport.serveIfAsked()
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try stageRenderer()
         ChatStore.folder = folder.appendingPathComponent("chats")
@@ -89,10 +95,12 @@ enum AskTest {
 
         tools()
         mcpServer()
+        hook()
         prompts()
         claudeStream()
         try claudeProcess()
         try codexProcess()
+        try realAgents()
         openAI()
         openAIWithoutTools()
         anthropic()
@@ -176,6 +184,46 @@ enum AskTest {
                                                    "params": ["name": "outline"]], document: { nil })
         check("a document that cannot be read is an error, not a crash",
               (unreadable?["result"] as? [String: Any])?["isError"] as? Bool == true)
+    }
+
+    // MARK: - The agents' hook
+
+    static func hookCall(_ tool: String) -> Data {
+        Data(#"{"hook_event_name":"PreToolUse","tool_name":"\#(tool)","tool_input":{}}"#.utf8)
+    }
+
+    static func hook() {
+        check("the hook lets the document's three tools through",
+              AskMCPServer.qualifiedToolNames.allSatisfy { AskHook.allows(hookCall($0)) })
+        check("and nothing else, look-alikes included",
+              ["Bash", "apply_patch", "Read", "mcp__other__read", "mcp__imark__write", "mcp__imark__read2"]
+                .allSatisfy { !AskHook.allows(hookCall($0)) })
+        check("what it cannot read, it refuses", !AskHook.allows(Data("not json".utf8)) && !AskHook.allows(Data("{}".utf8)))
+        check("its command survives a space or a quote in the app's path",
+              AskHook.command(executable: "/tmp/Imark Dev.app/Contents/MacOS/Imark") == "'/tmp/Imark Dev.app/Contents/MacOS/Imark' --ask-hook"
+                && AskHook.quoted("it's") == #"'it'\''s'"#)
+
+        // As the agents run it: this executable, started with the flag.
+        guard let me = Bundle.main.executablePath else { return check("the suite knows its own executable", false) }
+        func judge(_ tool: String) -> (status: Int32, said: String) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: me)
+            process.arguments = [AskHook.flag]
+            let input = Pipe()
+            let error = Pipe()
+            process.standardInput = input
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = error
+            do { try process.run() } catch { return (-1, "\(error)") }
+            input.fileHandleForWriting.write(hookCall(tool))
+            try? input.fileHandleForWriting.close()
+            process.waitUntilExit()
+            return (process.terminationStatus, String(decoding: error.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self))
+        }
+        let passed = judge("mcp__imark__search")
+        let refused = judge("apply_patch")
+        check("run as the agents run it, it passes with status 0 and refuses with 2 and its reason",
+              passed.status == 0 && refused.status == 2 && refused.said.contains(AskHook.refusal), "\(passed) \(refused)")
     }
 
     static func sampleChat(turns: [AskTurn] = [], session: String? = nil) -> AskChat {
@@ -296,7 +344,7 @@ enum AskTest {
     static func claudeProcess() throws {
         let script = try fakeClaude(claudeLines)
         Assistants.locations["claude"] = script
-        ClaudeCodeTransport.mcpExecutable = "/Applications/Imark.app/Contents/MacOS/Imark"
+        ClaudeCodeTransport.appExecutable = "/Applications/Imark.app/Contents/MacOS/Imark"
         let doc = folder.appendingPathComponent("doc.md")
         try document.write(to: doc, atomically: true, encoding: .utf8)
         let assistant = Assistant(id: "claude-code", kind: .claudeCode, name: "Claude Code", model: "haiku", spendingCap: 0.5)
@@ -312,6 +360,19 @@ enum AskTest {
             && (value(after: "--mcp-config") ?? "").contains("--ask-mcp") && (value(after: "--mcp-config") ?? "").contains(doc.path))
         check("only the document's tools are pre-approved",
               value(after: "--allowedTools") == "mcp__imark__outline,mcp__imark__read,mcp__imark__search")
+        check("what no rule allows is refused, not asked", value(after: "--permission-mode") == "dontAsk")
+        let settings = value(after: "--settings").flatMap { $0.data(using: .utf8) }
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        let group = ((settings?["hooks"] as? [String: Any])?["PreToolUse"] as? [[String: Any]])?.first
+        let command = (group?["hooks"] as? [[String: Any]])?.first?["command"] as? String
+        let matcher = (group?["matcher"] as? String).flatMap { try? NSRegularExpression(pattern: $0) }
+        func hooked(_ tool: String) -> Bool {
+            matcher?.firstMatch(in: tool, range: NSRange(tool.startIndex..., in: tool)) != nil
+        }
+        check("the app's own hook runs for any tool but the document's three",
+              command == "'/Applications/Imark.app/Contents/MacOS/Imark' --ask-hook"
+                && ["Bash", "Read", "mcp__other__read", "mcp__imark__read2"].allSatisfy(hooked)
+                && !AskMCPServer.qualifiedToolNames.contains(where: hooked), value(after: "--settings") ?? "none")
         check("its system prompt is Ask's", (value(after: "--system-prompt") ?? "").contains("Markdown reader"))
         check("the model and the cap go along", value(after: "--model") == "haiku" && value(after: "--max-budget-usd") == "0.5")
         check("a first question starts a new session", value(after: "--resume") == nil)
@@ -332,6 +393,7 @@ enum AskTest {
         let followStdin = (try? String(contentsOf: dir.appendingPathComponent("stdin.txt"), encoding: .utf8)) ?? ""
         check("a follow-up continues the session with only the question",
               followUp.last == .finished && resumed == "sess-1" && followStdin == "And then?", "\(resumed ?? "nil") \(followStdin)")
+        check("and keeps both locks", again.contains("dontAsk") && again.contains { $0.contains(AskHook.flag) })
 
         // A session Claude Code has cleared away: asked again with the chat
         // written out.
@@ -411,7 +473,7 @@ enum AskTest {
 
         let script = try fakeAgent("codex", codexLines)
         Assistants.locations["codex"] = script
-        CodexTransport.mcpExecutable = "/Applications/Imark.app/Contents/MacOS/Imark"
+        CodexTransport.appExecutable = "/Applications/Imark.app/Contents/MacOS/Imark"
         let doc = folder.appendingPathComponent("doc.md")
         try document.write(to: doc, atomically: true, encoding: .utf8)
         let assistant = Assistant(id: "codex", kind: .codex, name: "Codex", model: "gpt-6-sol")
@@ -432,6 +494,15 @@ enum AskTest {
                 .allSatisfy(settings.contains), "\(settings)")
         check("Ask's rules go in as its developer instructions",
               settings.contains { $0.hasPrefix("developer_instructions=") && $0.contains("Markdown reader") })
+        let hookCommand = "'/Applications/Imark.app/Contents/MacOS/Imark' --ask-hook"
+        let hooks = settings.first { $0.hasPrefix("hooks=") } ?? ""
+        check("the app's own hook sees every tool call, trusted by its own hash",
+              hooks.contains(#"matcher="*""#) && hooks.contains(#"command="\#(hookCommand)""#)
+                && hooks.contains(CodexTransport.hookKey) && hooks.contains(CodexTransport.trustedHash(of: hookCommand)), hooks)
+        // Worked out apart from the app, the way Codex's hook_hash does it.
+        check("the hash is the one Codex works out for that hook",
+              CodexTransport.trustedHash(of: hookCommand) == "sha256:1db231181cf5534cf48fb2f8211d93266e857ca2abb57501c95fe3470a359726",
+              CodexTransport.trustedHash(of: hookCommand))
         check("the model goes along, and the question comes on standard input",
               args.firstIndex(of: "--model").map { args[$0 + 1] } == "gpt-6-sol" && args.last == "-" && !args.contains("resume"))
         let stdin = (try? String(contentsOf: dir.appendingPathComponent("stdin.txt"), encoding: .utf8)) ?? ""
@@ -449,6 +520,7 @@ enum AskTest {
         check("a follow-up resumes the thread with only the question, its settings given again",
               again.suffix(3) == ["resume", "th-1", "-"] && followStdin == "And then?" && again.contains { $0.hasPrefix("mcp_servers.imark=") },
               "\(again.suffix(3)) \(followStdin)")
+        check("and keeps its hook", again.contains { $0.hasPrefix("hooks=") && $0.contains(AskHook.flag) })
         check("and counts only what it added", followUsage?.input == 763 && followUsage?.output == 22, "\(followUsage.map { "\($0)" } ?? "nil")")
 
         let gone = try fakeAgent("codex", [#"{"type":"turn.failed","error":{"message":"thread th-old not found"}}"#], status: 1)
@@ -536,6 +608,142 @@ enum AskTest {
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
         }
         return app
+    }
+
+    // MARK: - The real agents
+
+    /// The agent as installed. `IMARK_TEST_CLAUDE` or `IMARK_TEST_CODEX` picks
+    /// one, and set empty skips it.
+    static func realAgent(_ name: String) -> URL? {
+        if let path = ProcessInfo.processInfo.environment["IMARK_TEST_\(name.uppercased())"] {
+            return path.isEmpty ? nil : URL(fileURLWithPath: path)
+        }
+        let set = Assistants.locations.removeValue(forKey: name)
+        defer { if let set { Assistants.locations[name] = set } }
+        if let found = Assistants.locate(name) { return found }
+        guard name == "codex" else { return nil }
+        return Assistants.bundledExecutable(in: URL(fileURLWithPath: "/Applications/ChatGPT.app"), named: "codex")
+    }
+
+    /// One run of an agent from a home of the suite's own, so none of the
+    /// reader's settings, logins or sessions is read or written. Says what the
+    /// agent printed, for when a check fails.
+    static func runAgent(_ executable: URL, _ arguments: [String], environment extra: [String: String],
+                         prompt: String, home: URL) -> String {
+        let work = home.appendingPathComponent("work")
+        try? FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        let log = home.appendingPathComponent("output-\(UUID().uuidString).txt")
+        FileManager.default.createFile(atPath: log.path, contents: nil)
+        let output = try? FileHandle(forWritingTo: log)
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = arguments
+        process.environment = [
+            "HOME": home.path, "USER": NSUserName(), "TMPDIR": NSTemporaryDirectory(),
+            "PATH": executable.deletingLastPathComponent().path + ":" + Assistants.searchPath,
+        ].merging(extra) { $1 }
+        process.currentDirectoryURL = work
+        let input = Pipe()
+        process.standardInput = input
+        process.standardOutput = output
+        process.standardError = output
+        do { try process.run() } catch { return "\(error)" }
+        input.fileHandleForWriting.write(Data(prompt.utf8))
+        try? input.fileHandleForWriting.close()
+        let stop = DispatchWorkItem { process.terminate() }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 120, execute: stop)
+        process.waitUntilExit()
+        stop.cancel()
+        try? output?.close()
+        return String((try? String(contentsOf: log, encoding: .utf8))?.suffix(600) ?? "")
+    }
+
+    /// The locks against the agents themselves: each runs with the arguments
+    /// Ask gives it, against a model on localhost that makes the call a check
+    /// names. Skipped for an agent that is not installed.
+    static func realAgents() throws {
+        let doc = folder.appendingPathComponent("doc.md")
+        try document.write(to: doc, atomically: true, encoding: .utf8)
+        let fake = AgentTransport.appExecutable
+        AgentTransport.appExecutable = Bundle.main.executablePath
+        defer { AgentTransport.appExecutable = fake }
+        let jitter = "full jitter, capped at 30 seconds"
+
+        if let claude = realAgent("claude") {
+            let model = try StandInModel(.anthropic)
+            guard let port = model.start() else { return check("the stand-in model listens", false) }
+            defer { model.stop() }
+            let home = folder.appendingPathComponent("agents/claude")
+            var environment = [
+                "CLAUDE_CONFIG_DIR": home.appendingPathComponent(".claude").path,
+                "ANTHROPIC_API_KEY": "sk-ant-stand-in", "ANTHROPIC_BASE_URL": "http://127.0.0.1:\(port)",
+                "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_AUTOUPDATER": "1",
+            ]
+            ClaudeCodeTransport().prepare(&environment)
+            let assistant = Assistant(id: "claude-code", kind: .claudeCode, name: "Claude Code", model: "")
+            let request = AskRequest(assistant: assistant, chat: sampleChat(), question: "How are retries spaced?", document: doc, text: document)
+            let arguments = ClaudeCodeTransport.arguments(for: request, resume: false)
+            let prompt = ClaudeCodeTransport.prompt(for: request)
+
+            model.reset { _ in ["name": "mcp__imark__search", "input": ["query": "jitter"]] }
+            let said = runAgent(claude, arguments, environment: environment, prompt: prompt, home: home)
+            check("the real Claude Code is offered the document's three tools and nothing else",
+                  model.offered.sorted() == AskMCPServer.qualifiedToolNames, "\(model.offered) \(said)")
+            check("and the document's search gets through both locks", model.results.contains { $0.contains(jitter) }, "\(model.results) \(said)")
+
+            // A tool back among its own and allowed too: the hook still refuses it.
+            let marker = home.appendingPathComponent("work/claude-marker")
+            var leaked = arguments
+            if let tools = leaked.firstIndex(of: "--tools") { leaked[tools + 1] = "Bash" }
+            if let allowed = leaked.firstIndex(of: "--allowedTools") { leaked[allowed + 1] += ",Bash" }
+            model.reset { _ in ["name": "Bash", "input": ["command": "touch \(AskHook.quoted(marker.path))"]] }
+            let leakSaid = runAgent(claude, leaked, environment: environment, prompt: prompt, home: home)
+            check("a tool that slips in, allowed even, is refused by the hook",
+                  model.offered.contains("Bash") && !FileManager.default.fileExists(atPath: marker.path)
+                    && model.results.contains { $0.contains(AskHook.refusal) }, "\(model.results) \(leakSaid)")
+        } else {
+            print("SKIP the real Claude Code: not installed")
+        }
+
+        if let codex = realAgent("codex") {
+            let model = try StandInModel(.responses)
+            guard let port = model.start() else { return check("the stand-in model listens", false) }
+            defer { model.stop() }
+            let home = folder.appendingPathComponent("agents/codex")
+            let codexHome = home.appendingPathComponent(".codex")
+            try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+            let environment = ["CODEX_HOME": codexHome.path, "IMARK_STAND_IN_KEY": "stand-in"]
+            let assistant = Assistant(id: "codex", kind: .codex, name: "Codex", model: "")
+            let request = AskRequest(assistant: assistant, chat: sampleChat(), question: "How are retries spaced?", document: doc, text: document)
+            var arguments = CodexTransport.arguments(for: request, resume: false)
+            arguments.insert(contentsOf: [
+                "-c", #"model_provider="standin""#,
+                "-c", #"model_providers.standin={name="stand-in", base_url="http://127.0.0.1:\#(port)/v1", wire_api="responses", env_key="IMARK_STAND_IN_KEY"}"#,
+            ], at: 1)
+            let prompt = AgentTransport.conversation(for: request)
+            // Codex gives the model one tool, `exec`, and the rest inside it, to call from JavaScript.
+            func exec(_ script: String) -> ([String]) -> [String: Any] {
+                { offered in offered.contains("exec") ? ["type": "custom_tool_call", "name": "exec", "input": script] : [:] }
+            }
+
+            model.reset(exec("text(JSON.stringify(await tools.mcp__imark__search({query: \"jitter\"})));\n"))
+            let said = runAgent(codex, arguments, environment: environment, prompt: prompt, home: home)
+            check("the real Codex's search of the document gets through the hook",
+                  model.results.contains { $0.contains(jitter) }, "\(model.offered) \(model.results) \(said)")
+
+            let marker = home.appendingPathComponent("work/codex-marker")
+            let patch = "*** Begin Patch\n*** Add File: \(marker.path)\n+written by the stand-in model\n*** End Patch\n"
+            let literal = String(decoding: try JSONEncoder().encode(patch), as: UTF8.self)
+            model.reset(exec("text(JSON.stringify(await tools.apply_patch(\(literal))));\n"))
+            let patchSaid = runAgent(codex, arguments, environment: environment, prompt: prompt, home: home)
+            // The sandbox refuses a patch as well; the hook's own reason says
+            // Codex ran the hook, so it still trusts it by its hash.
+            check("its patch tool is refused by the hook, not only by the sandbox",
+                  !FileManager.default.fileExists(atPath: marker.path) && model.results.contains { $0.contains(AskHook.refusal) },
+                  "\(model.results) \(patchSaid)")
+        } else {
+            print("SKIP the real Codex: not installed")
+        }
     }
 
     // MARK: - APIs
@@ -1953,5 +2161,195 @@ enum AskTest {
               (js(page, "__thread().scrollHeight - __thread().clientHeight") as? Double ?? 0) > 200 && fromEnd() < 2,
               "\(fromEnd()) from the end")
         controller.window?.close()
+    }
+}
+
+/// A model on localhost for the real agents: its first turn is the call it is
+/// set to make, from the tools on offer; anything after that gets "done". It
+/// keeps what the tools returned. Anthropic's Messages for Claude Code, OpenAI's
+/// Responses for Codex, streamed, one request per connection.
+final class StandInModel: @unchecked Sendable {
+    enum Wire { case anthropic, responses }
+
+    private let wire: Wire
+    private let listener: NWListener
+    private let queue = DispatchQueue(label: "stand-in-model")
+    private let lock = NSLock()
+    private var call: ([String]) -> [String: Any] = { _ in [:] }
+    private var toolsOffered: [String] = []
+    private var toolResults: [String] = []
+
+    var offered: [String] { locked { toolsOffered } }
+    var results: [String] { locked { toolResults } }
+
+    init(_ wire: Wire) throws {
+        self.wire = wire
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: .any)
+        listener = try NWListener(using: parameters)
+    }
+
+    /// Listening on a port of its own, or nil.
+    func start() -> UInt16? {
+        let ready = DispatchSemaphore(value: 0)
+        listener.stateUpdateHandler = { state in
+            switch state {
+            case .ready, .failed, .cancelled: ready.signal()
+            default: break
+            }
+        }
+        listener.newConnectionHandler = { [weak self] connection in self?.serve(connection) }
+        listener.start(queue: queue)
+        _ = ready.wait(timeout: .now() + 5)
+        return listener.port?.rawValue
+    }
+
+    func stop() { listener.cancel() }
+
+    /// The call for the next run, picked from the tools on offer; an empty one
+    /// makes none.
+    func reset(_ call: @escaping ([String]) -> [String: Any]) {
+        locked {
+            self.call = call
+            toolsOffered = []
+            toolResults = []
+        }
+    }
+
+    private func locked<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
+
+    private func serve(_ connection: NWConnection) {
+        connection.start(queue: queue)
+        read(connection, Data())
+    }
+
+    private func read(_ connection: NWConnection, _ received: Data) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 1 << 20) { [weak self] data, _, complete, error in
+            var received = received
+            if let data { received.append(data) }
+            guard let self else { return connection.cancel() }
+            if let request = Self.request(in: received) {
+                connection.send(content: self.reply(to: request), completion: .contentProcessed { _ in connection.cancel() })
+            } else if complete || error != nil {
+                connection.cancel()
+            } else {
+                self.read(connection, received)
+            }
+        }
+    }
+
+    /// The path and body, once the headers and all the body they announce are in.
+    private static func request(in data: Data) -> (path: String, body: Data)? {
+        guard let end = data.range(of: Data("\r\n\r\n".utf8)) else { return nil }
+        let head = String(decoding: data[..<end.lowerBound], as: UTF8.self).components(separatedBy: "\r\n")
+        let path = head.first?.split(separator: " ").dropFirst().first.map(String.init) ?? ""
+        let length = head.dropFirst().compactMap { line -> Int? in
+            let field = line.split(separator: ":", maxSplits: 1)
+            guard field.count == 2, field[0].lowercased() == "content-length" else { return nil }
+            return Int(field[1].trimmingCharacters(in: .whitespaces))
+        }.first ?? 0
+        let body = data[end.upperBound...]
+        return body.count < length ? nil : (path, Data(body.prefix(length)))
+    }
+
+    private func reply(to request: (path: String, body: Data)) -> Data {
+        let body = (try? JSONSerialization.jsonObject(with: request.body)) as? [String: Any] ?? [:]
+        if request.path.contains("count_tokens") { return Self.http(200, "application/json", #"{"input_tokens":10}"#) }
+        switch wire {
+        case .anthropic where request.path.hasPrefix("/v1/messages"):
+            return Self.http(200, "text/event-stream", messages(body))
+        case .responses where request.path.hasSuffix("/responses"):
+            return Self.http(200, "text/event-stream", responses(body))
+        default:
+            return Self.http(404, "application/json", #"{"error":{"message":"not here"}}"#)
+        }
+    }
+
+    /// Keeps what the tools returned; on the first turn that offers tools, the
+    /// call to make.
+    private func turn(offering tools: [String], returned: [String]) -> [String: Any]? {
+        locked {
+            toolResults += returned
+            guard !tools.isEmpty, returned.isEmpty, toolsOffered.isEmpty else { return nil }
+            toolsOffered = tools
+            let made = call(tools)
+            return made.isEmpty ? nil : made
+        }
+    }
+
+    private func messages(_ body: [String: Any]) -> String {
+        let tools = (body["tools"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }
+        let last = (body["messages"] as? [[String: Any]])?.last?["content"] as? [[String: Any]] ?? []
+        let returned = last.filter { $0["type"] as? String == "tool_result" }.map { Self.text($0["content"]) }
+        let call = turn(offering: tools, returned: returned)
+        let block: [String: Any] = call.map { ["type": "tool_use", "id": "toolu_stand_in", "name": $0["name"] ?? "", "input": [String: Any]()] }
+            ?? ["type": "text", "text": ""]
+        let delta: [String: Any] = call.map { ["type": "input_json_delta", "partial_json": Self.json($0["input"] ?? [String: Any]())] }
+            ?? ["type": "text_delta", "text": "done"]
+        return Self.events([
+            ["type": "message_start", "message": [
+                "id": "msg_stand_in", "type": "message", "role": "assistant", "model": body["model"] ?? "stand-in",
+                "content": [Any](), "stop_reason": NSNull(), "stop_sequence": NSNull(), "usage": ["input_tokens": 10, "output_tokens": 1],
+            ]],
+            ["type": "content_block_start", "index": 0, "content_block": block],
+            ["type": "content_block_delta", "index": 0, "delta": delta],
+            ["type": "content_block_stop", "index": 0],
+            ["type": "message_delta", "delta": ["stop_reason": call == nil ? "end_turn" : "tool_use", "stop_sequence": NSNull()],
+             "usage": ["output_tokens": 5]],
+            ["type": "message_stop"],
+        ])
+    }
+
+    private func responses(_ body: [String: Any]) -> String {
+        let input = body["input"] as? [[String: Any]] ?? []
+        // Codex lists its tools in the input, in namespaces, as well as at the top.
+        var listed = body["tools"] as? [[String: Any]] ?? []
+        for item in input where item["type"] as? String == "additional_tools" { listed += item["tools"] as? [[String: Any]] ?? [] }
+        let tools = listed.flatMap { tool -> [String] in
+            tool["type"] as? String == "namespace"
+                ? (tool["tools"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }
+                : [tool["name"] as? String ?? ""]
+        }
+        let returned = input
+            .filter { ($0["type"] as? String)?.hasSuffix("_call_output") == true && $0["call_id"] as? String == "call_stand_in" }
+            .map { Self.text($0["output"]) }
+        var item: [String: Any] = ["type": "message", "role": "assistant", "id": "msg_stand_in",
+                                   "content": [["type": "output_text", "text": "done", "annotations": [Any]()]]]
+        if let call = turn(offering: tools, returned: returned) {
+            item = call.merging(["id": "item_stand_in", "call_id": "call_stand_in"]) { $1 }
+        }
+        let usage: [String: Any] = ["input_tokens": 10, "input_tokens_details": ["cached_tokens": 0], "output_tokens": 5,
+                                    "output_tokens_details": ["reasoning_tokens": 0], "total_tokens": 15]
+        return Self.events([
+            ["type": "response.created", "response": ["id": "resp_stand_in"]],
+            ["type": "response.output_item.added", "output_index": 0, "item": item],
+            ["type": "response.output_item.done", "output_index": 0, "item": item],
+            ["type": "response.completed", "response": ["id": "resp_stand_in", "usage": usage]],
+        ])
+    }
+
+    /// A tool's result: a string, or blocks of text.
+    private static func text(_ value: Any?) -> String {
+        if let text = value as? String { return text }
+        return (value as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n")
+    }
+
+    private static func json(_ value: Any) -> String {
+        (try? JSONSerialization.data(withJSONObject: value)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+    }
+
+    private static func events(_ events: [[String: Any]]) -> String {
+        events.map { "event: \($0["type"] as? String ?? "")\ndata: \(json($0))\n\n" }.joined()
+    }
+
+    private static func http(_ status: Int, _ type: String, _ body: String) -> Data {
+        let bytes = Data(body.utf8)
+        let head = "HTTP/1.1 \(status) \(status == 200 ? "OK" : "Not Found")\r\nContent-Type: \(type)\r\n"
+            + "Content-Length: \(bytes.count)\r\nConnection: close\r\n\r\n"
+        return Data(head.utf8) + bytes
     }
 }
