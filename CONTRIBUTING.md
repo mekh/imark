@@ -37,6 +37,7 @@ node Support/test-math.mjs
 swift Support/test-plus.swift
 swift Support/test-text-size.swift
 swift Support/test-pieces.swift
+swift Support/test-preview.swift
 swift Support/test-diagrams.swift
 swift Support/test-anchors.swift
 ```
@@ -48,6 +49,9 @@ swiftc -parse-as-library Sources/Imark/Comments.swift Sources/Imark/NoteColour.s
   Support/test-comments.swift -o /tmp/imark-test && /tmp/imark-test
 swiftc -parse-as-library $(find Sources/ImarkRender -name '*.swift') \
   Support/test-titlebar.swift -o /tmp/imark-test-titlebar && /tmp/imark-test-titlebar
+swiftc -parse-as-library Sources/Imark/LinkRouter.swift Sources/Imark/MarkdownType.swift \
+  Sources/ImarkRender/SchemeHandler.swift Support/test-links.swift \
+  -o /tmp/imark-test-links && /tmp/imark-test-links
 Support/test-setup.sh
 Support/test-cli.sh
 Support/test-update.sh
@@ -57,6 +61,12 @@ swiftc -parse-as-library -I "$TEST_BIN" -I "$TEST_BIN/Modules" -F "$TEST_BIN" \
   $(find Sources/Imark -name '*.swift' ! -name main.swift) \
   $(find Sources/ImarkRender -name '*.swift') \
   Support/test-settings.swift -o /tmp/imark-test-settings && /tmp/imark-test-settings
+mkdir -p /tmp/imark-test-selection && swiftc -parse-as-library -I "$TEST_BIN" \
+  -I "$TEST_BIN/Modules" -F "$TEST_BIN" -Xlinker -rpath -Xlinker "$TEST_BIN" \
+  $(find Sources/Imark -name '*.swift' ! -name main.swift) \
+  $(find Sources/ImarkRender -name '*.swift') \
+  Support/test-selection.swift -o /tmp/imark-test-selection/run \
+  && /tmp/imark-test-selection/run
 ```
 
 ## Where things are

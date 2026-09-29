@@ -73,6 +73,10 @@ if [ "${1:-}" != "--force" ]; then
 	swiftc -parse-as-library $(find Sources/ImarkRender -name '*.swift') \
 		Support/test-titlebar.swift -o /tmp/imark-release-titlebar >/dev/null 2>&1 \
 		&& /tmp/imark-release-titlebar >/dev/null || die "the title bar tests failed"
+	swiftc -parse-as-library Sources/Imark/LinkRouter.swift Sources/Imark/MarkdownType.swift \
+		Sources/ImarkRender/SchemeHandler.swift Support/test-links.swift \
+		-o /tmp/imark-release-links >/dev/null 2>&1 \
+		&& /tmp/imark-release-links >/dev/null || die "the link and resource tests failed"
 	node Support/test-export.mjs >/dev/null 2>&1 || die "the export test failed"
 	node Support/test-notes.mjs >/dev/null 2>&1 || die "the note anchoring tests failed"
 	node Support/test-invocation.mjs >/dev/null 2>&1 || die "the plugin invocation tests failed"
@@ -105,6 +109,7 @@ if [ "${1:-}" != "--force" ]; then
 	swift Support/test-plus.swift >/dev/null 2>&1 || die "the margin button tests failed"
 	swift Support/test-text-size.swift >/dev/null 2>&1 || die "the text size tests failed"
 	swift Support/test-pieces.swift >/dev/null 2>&1 || die "the list and table note tests failed"
+	swift Support/test-preview.swift >/dev/null 2>&1 || die "the Quick Look link tests failed"
 	swift Support/test-front-matter.swift >/dev/null 2>&1 || die "the front matter tests failed"
 	swift Support/test-diagrams.swift >/dev/null 2>&1 || die "the diagram tests failed"
 	swift Support/test-anchors.swift >/dev/null 2>&1 || die "the heading link tests failed"
@@ -115,6 +120,14 @@ if [ "${1:-}" != "--force" ]; then
 			$(find Sources/ImarkRender -name '*.swift') \
 			Support/test-settings.swift -o /tmp/imark-release-settings >/dev/null 2>&1 \
 		&& /tmp/imark-release-settings >/dev/null || die "the Settings window tests failed"
+	# In a folder of its own: it puts the renderer beside itself to serve it.
+	mkdir -p /tmp/imark-release-selection
+	swiftc -parse-as-library -I "$TEST_BIN" -I "$TEST_BIN/Modules" -F "$TEST_BIN" \
+			-Xlinker -rpath -Xlinker "$TEST_BIN" \
+			$(find Sources/Imark -name '*.swift' ! -name main.swift) \
+			$(find Sources/ImarkRender -name '*.swift') \
+			Support/test-selection.swift -o /tmp/imark-release-selection/run >/dev/null 2>&1 \
+		&& /tmp/imark-release-selection/run >/dev/null || die "the selection tests failed"
 	# test-setup.sh needs an assembled app, so it runs after the build instead.
 
 	echo "clean tree, on main, in sync, tests pass"

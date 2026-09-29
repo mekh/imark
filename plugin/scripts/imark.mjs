@@ -238,6 +238,43 @@ function verdict(notes) {
 }
 
 /**
+ * The notes written since the review began: `notes` minus one match for each
+ * line in `before` that opened a note.
+ *
+ * Only these can decide it. Whoever asked for the review wrote the document — a
+ * plan is the agent's own text, arriving on the hook's stdin — so a verdict word
+ * already in it would end the review with nobody having looked, and an "approve"
+ * left over from an earlier round would end the next round too.
+ *
+ * Matched on who wrote the note, when, and on what — the attributes of its
+ * opening line as the file has it — not on what parseNotes made of the note.
+ * The app ends a note at any line holding `-->`, this script only at a line that
+ * is nothing else, so a planted note can run on into the next one here: its
+ * body changes as soon as the reviewer writes below it, and a note it swallowed
+ * surfaces when the reviewer writes in between. The opening lines are read
+ * wherever they sit, inside another note included. Not on the line itself,
+ * because editing a note in the app rewrites it — `color=` moves to the end —
+ * and not on its number, because the reviewer's notes push every note below
+ * them down.
+ */
+export function writtenSince(before, notes) {
+  const key = (quote, by, at) => JSON.stringify([quote, by, at])
+  const left = new Map()
+  for (const line of before) {
+    const attrs = attributes(line)
+    const k = key(attrs.quote ?? '', attrs.by ?? '', attrs.at ?? '')
+    left.set(k, (left.get(k) ?? 0) + 1)
+  }
+  return notes.filter((note) => {
+    const k = key(note.quote, note.by, note.at)
+    const count = left.get(k) ?? 0
+    if (count === 0) return true
+    left.set(k, count - 1)
+    return false
+  })
+}
+
+/**
  * What the agent is told when the review comes back.
  *
  * Written as an instruction rather than a report. An earlier version opened
@@ -312,11 +349,26 @@ function openInImark(file) {
 }
 
 /**
+ * Every line in a file that opens a note, wherever it sits, or none if the file
+ * cannot be read. See writtenSince.
+ */
+export function openingLines(file) {
+  try {
+    return fs.readFileSync(file, 'utf8').split('\n').filter((line) => OPEN_LINE.test(line))
+  } catch {
+    return []
+  }
+}
+
+/**
  * Block until a decision note appears. Polls rather than watches: fs.watch on
  * macOS misses the write-to-temporary-and-rename that Imark does on purpose,
  * which is exactly the write we are waiting for.
+ *
+ * `before` is the lines that opened a note before the document went in front
+ * of the reviewer; see writtenSince for why none of them can decide the review.
  */
-async function waitForDecision(file, request, { timeoutMs = 4 * 60 * 60 * 1000 } = {}) {
+async function waitForDecision(file, request, { before = [], timeoutMs = 4 * 60 * 60 * 1000 } = {}) {
   const started = Date.now()
   let seen = ''
 
@@ -347,7 +399,7 @@ async function waitForDecision(file, request, { timeoutMs = 4 * 60 * 60 * 1000 }
       if (stamp !== seen) {
         seen = stamp
         const notes = parseNotes(fs.readFileSync(file, 'utf8'))
-        const decided = verdict(notes)
+        const decided = verdict(writtenSince(before, notes))
         if (decided) {
           return {
             approved: decided.approved,
@@ -380,9 +432,14 @@ function pendingDir() {
     || path.join(os.homedir(), '.imark', 'pending')
   fs.mkdirSync(dir, { recursive: true })
   // A crashed script leaves its request behind. Anything old enough that
-  // nobody can still be waiting on it is litter, not state.
+  // nobody can still be waiting on it is litter, not state — but only litter
+  // of ours, named the way requestReview and writeEphemeral name things.
+  // IMARK_PENDING_DIR can point anywhere, and a sweep that took every old file
+  // it found would take whatever else lives there.
+  const ours = /^[0-9a-f]{12}(\.json|\.decision\.json|\.md)$/
   const cutoff = Date.now() - 2 * 24 * 60 * 60 * 1000
   for (const name of fs.readdirSync(dir)) {
+    if (!ours.test(name)) continue
     const file = path.join(dir, name)
     try { if (fs.statSync(file).mtimeMs < cutoff) fs.rmSync(file) } catch { /* raced */ }
   }
@@ -605,6 +662,9 @@ async function cmdReview(argv) {
 
   const request = requestReview(target)
   withdrawWhenKilled(request)
+  // Read before the reviewer can see it, so nothing they write is mistaken for
+  // something that was already there.
+  const before = openingLines(target)
   try {
     openInImark(target)
   } catch (error) {
@@ -615,7 +675,7 @@ async function cmdReview(argv) {
   if (!wait) { say(`Opened in Imark: ${target}`); return }
   say(`Opened in Imark: ${target}\nWaiting for Approve or Send Back in the window…`)
 
-  const result = await waitForDecision(target, request)
+  const result = await waitForDecision(target, request, { before })
   withdraw(request)
   // A sent-back ephemeral stays: the feedback points the agent at its notes.
   // The pending purge sweeps it up once nobody can still be reading it.
@@ -646,6 +706,7 @@ async function cmdPlanHook() {
   const file = writeEphemeral({ title: 'Plan', body: plan })
   const request = requestReview(file)
   withdrawWhenKilled(request)
+  const before = openingLines(file)
   try { openInImark(file) } catch (error) {
     process.stderr.write(`imark: ${error.message}\n`)
     withdraw(request)
@@ -653,7 +714,7 @@ async function cmdPlanHook() {
     return pass()
   }
 
-  const result = await waitForDecision(file, request)
+  const result = await waitForDecision(file, request, { before })
   withdraw(request)
   if (result?.approved) fs.rmSync(file, { force: true })
   // Only a timeout falls through to the normal prompt. Approving in the app and
