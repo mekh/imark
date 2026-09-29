@@ -30,9 +30,15 @@ class AgentTransport: AskTransport {
     /// first process to wind down, and its last words must not end the second.
     private var generation = 0
 
-    /// The server the agent starts for the document's tools: the app itself.
-    /// Replaced by the tests, whose executable is not the app.
-    static var mcpExecutable: String? = Bundle.main.executablePath
+    /// What the agent starts as the document's tool server and as its hook: the
+    /// app itself. Replaced by the tests, whose executable is not the app.
+    static var appExecutable: String? = Bundle.main.executablePath
+
+    /// Serves an agent that started the app, and exits.
+    static func serveIfAsked(_ arguments: [String] = CommandLine.arguments) {
+        if arguments.count == 3, arguments[1] == AskMCPServer.flag { AskMCPServer.run(documentPath: arguments[2]) }
+        if arguments.count == 2, arguments[1] == AskHook.flag { AskHook.run() }
+    }
 
     /// Where the agents run and keep their sessions: a folder of their own, so
     /// no project's instructions come along and the sessions stay out of the
