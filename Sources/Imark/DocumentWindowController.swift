@@ -445,9 +445,8 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         case .local(let path):
             // Spelled as file:// rather than as a path, and still a file on this
             // Mac: a document opens here, anything else is shown in the Finder.
-            // The heading goes along encoded, the way the page sends its own.
             guard !path.isEmpty else { return NSSound.beep() }
-            let anchor = target.fragment(percentEncoded: true) ?? ""
+            let anchor = target.fragment ?? ""
             handle(.openLocal(path: path, anchor: anchor.isEmpty ? nil : anchor))
         case .ask:
             // Nothing on this Mac answers to it, so there is nothing to ask.

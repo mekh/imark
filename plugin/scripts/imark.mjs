@@ -239,24 +239,37 @@ function verdict(notes) {
 
 /**
  * The notes written since the review began: `notes` minus one match for each
- * note in `before`.
+ * line in `before` that opened a note.
  *
  * Only these can decide it. Whoever asked for the review wrote the document — a
  * plan is the agent's own text, arriving on the hook's stdin — so a verdict word
  * already in it would end the review with nobody having looked, and an "approve"
  * left over from an earlier round would end the next round too.
  *
- * Matched on what a note says rather than on its line, because the reviewer's
- * notes move every note below them down.
+ * Matched on who wrote the note, when, and on what — the attributes of its
+ * opening line as the file has it — not on what parseNotes made of the note.
+ * The app ends a note at any line holding `-->`, this script only at a line that
+ * is nothing else, so a planted note can run on into the next one here: its
+ * body changes as soon as the reviewer writes below it, and a note it swallowed
+ * surfaces when the reviewer writes in between. The opening lines are read
+ * wherever they sit, inside another note included. Not on the line itself,
+ * because editing a note in the app rewrites it — `color=` moves to the end —
+ * and not on its number, because the reviewer's notes push every note below
+ * them down.
  */
 export function writtenSince(before, notes) {
-  const key = (note) => JSON.stringify([note.scope, note.quote, note.by, note.at, note.nth, note.body])
+  const key = (quote, by, at) => JSON.stringify([quote, by, at])
   const left = new Map()
-  for (const note of before) left.set(key(note), (left.get(key(note)) ?? 0) + 1)
+  for (const line of before) {
+    const attrs = attributes(line)
+    const k = key(attrs.quote ?? '', attrs.by ?? '', attrs.at ?? '')
+    left.set(k, (left.get(k) ?? 0) + 1)
+  }
   return notes.filter((note) => {
-    const count = left.get(key(note)) ?? 0
+    const k = key(note.quote, note.by, note.at)
+    const count = left.get(k) ?? 0
     if (count === 0) return true
-    left.set(key(note), count - 1)
+    left.set(k, count - 1)
     return false
   })
 }
@@ -335,10 +348,13 @@ function openInImark(file) {
   if (result.status !== 0) throw new Error(result.stderr?.trim() || 'open failed')
 }
 
-/** The notes in a file, or none if it cannot be read. */
-function notesIn(file) {
+/**
+ * Every line in a file that opens a note, wherever it sits, or none if the file
+ * cannot be read. See writtenSince.
+ */
+export function openingLines(file) {
   try {
-    return parseNotes(fs.readFileSync(file, 'utf8'))
+    return fs.readFileSync(file, 'utf8').split('\n').filter((line) => OPEN_LINE.test(line))
   } catch {
     return []
   }
@@ -349,8 +365,8 @@ function notesIn(file) {
  * macOS misses the write-to-temporary-and-rename that Imark does on purpose,
  * which is exactly the write we are waiting for.
  *
- * `before` is the notes the document held before it went in front of the
- * reviewer; see writtenSince for why none of them can decide the review.
+ * `before` is the lines that opened a note before the document went in front
+ * of the reviewer; see writtenSince for why none of them can decide the review.
  */
 async function waitForDecision(file, request, { before = [], timeoutMs = 4 * 60 * 60 * 1000 } = {}) {
   const started = Date.now()
@@ -648,7 +664,7 @@ async function cmdReview(argv) {
   withdrawWhenKilled(request)
   // Read before the reviewer can see it, so nothing they write is mistaken for
   // something that was already there.
-  const before = notesIn(target)
+  const before = openingLines(target)
   try {
     openInImark(target)
   } catch (error) {
@@ -690,7 +706,7 @@ async function cmdPlanHook() {
   const file = writeEphemeral({ title: 'Plan', body: plan })
   const request = requestReview(file)
   withdrawWhenKilled(request)
-  const before = notesIn(file)
+  const before = openingLines(file)
   try { openInImark(file) } catch (error) {
     process.stderr.write(`imark: ${error.message}\n`)
     withdraw(request)
