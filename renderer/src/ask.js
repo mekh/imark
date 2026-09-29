@@ -29,6 +29,7 @@ let layer = null
 let listOpen = false
 let expanded = new Set()
 let usageTip = null
+let usageThreadTop = null
 const drafts = new Map()
 let renderTimer = 0
 
@@ -476,8 +477,11 @@ function threadHTML(chat) {
   return chat.turns.map((_, index) => turnHTML(chat, index)).join('')
 }
 
-function fillChat(host, chat, mode) {
+/// Drawn again, a chat keeps its reader's place in the thread; another chat
+/// starts at the top.
+function fillChat(host, chat, mode, place) {
   closeUsage()
+  if (place === undefined && host.dataset.chat === chat.id) place = placeIn(host.querySelector('.ask-thread'))
   const total = config.showUsage ? totalLine(chat) : ''
   const head =
     mode === 'card'
@@ -493,6 +497,7 @@ function fillChat(host, chat, mode) {
     ready(field)
   }
   decorate(host, chat)
+  putBack(host.querySelector('.ask-thread'), place)
 }
 
 /// The arrow is live only with something to send.
@@ -778,6 +783,8 @@ function fillPanel() {
   if (!panel) return
   closeUsage()
   const chat = shown
+  const body = panel.querySelector('.ask-panel-body')
+  const place = chat && body?.dataset.chat === chat.id ? placeIn(body.querySelector('.ask-thread')) : null
   const total = chat && config.showUsage ? totalLine(chat) : ''
   const count = chats.filter((c) => c.turns.length).length
   const list = listOpen ? listHTML() : ''
@@ -787,8 +794,7 @@ function fillPanel() {
 ${total ? `<button type="button" class="ask-meta" data-action="chat-usage" aria-label="Usage of this chat">${escapeHtml(total)}</button>` : ''}
 ${iconButton('plus', 'New chat about the document', 'new')}${iconButton('close', 'Close the panel', 'close-panel')}
 </div>${list}<div class="ask-panel-body"></div>`
-  const body = panel.querySelector('.ask-panel-body')
-  if (chat) fillChat(body, chat, 'panel')
+  if (chat) fillChat(panel.querySelector('.ask-panel-body'), chat, 'panel', place)
 }
 
 function listHTML() {
@@ -875,6 +881,7 @@ function toggleUsage(button, html) {
   usageTip.dataset.for = button.dataset.action + (button.dataset.turn ?? '')
   usageTip.innerHTML = html
   document.body.appendChild(usageTip)
+  usageThreadTop = currentThread()?.scrollTop ?? null
   button.setAttribute('aria-expanded', 'true')
   const box = button.getBoundingClientRect()
   const width = Math.min(340, window.innerWidth - 24)
@@ -925,39 +932,88 @@ function send(chat, question) {
   scrollThreadToEnd()
 }
 
+const currentThread = () =>
+  showsIn === 'card' ? card?.querySelector('.ask-thread') : panel?.querySelector('.ask-panel-body .ask-thread')
+
 /// Opening a chat shows its last question and the start of its answer, not
 /// the bottom of a long answer with its beginning scrolled away.
 function scrollToLatest() {
-  const thread = showsIn === 'card' ? card?.querySelector('.ask-thread') : panel?.querySelector('.ask-panel-body .ask-thread')
+  const thread = currentThread()
   const last = thread?.querySelector('.ask-turn:last-child')
   if (!thread || !last) return
-  thread.scrollTop = Math.max(0, last.offsetTop - thread.offsetTop - 4)
+  setTop(thread, Math.max(0, last.offsetTop - thread.offsetTop - 4))
 }
 
 function scrollThreadToEnd() {
-  const thread = showsIn === 'card' ? card?.querySelector('.ask-thread') : panel?.querySelector('.ask-panel-body .ask-thread')
-  if (thread) thread.scrollTop = thread.scrollHeight
+  const thread = currentThread()
+  if (thread) setTop(thread, thread.scrollHeight)
 }
 
-/// Whether the reader is at the end of the thread, where new words should keep
-/// them. Scrolled up to reread something, they stay put.
-function atEnd() {
-  const thread = showsIn === 'card' ? card?.querySelector('.ask-thread') : panel?.querySelector('.ask-panel-body .ask-thread')
-  return !thread || thread.scrollHeight - thread.scrollTop - thread.clientHeight < 40
+/// Whether the thread keeps to its end as an answer comes in: until the reader
+/// scrolls up, and again once they are back at the end.
+let following = true
+/// The thread's scrollTop as last seen or set here. An answer growing leaves
+/// it as it is, so a different one is the reader's scrolling.
+let seenTop = 0
+
+const atBottom = (thread) => thread.scrollHeight - thread.scrollTop - thread.clientHeight < 2
+
+function setTop(thread, top) {
+  thread.scrollTop = top
+  seenTop = thread.scrollTop
+  following = atBottom(thread)
+}
+
+function sawScroll(thread) {
+  if (thread.scrollTop === seenTop) return
+  seenTop = thread.scrollTop
+  following = atBottom(thread)
+}
+
+/// Where the reader is in a thread: at its end, or at the words at the top of
+/// the view, held by their turn, or by its answer once the view is inside it —
+/// the searches above an answer fold into one line when it is done.
+function placeIn(thread) {
+  if (!thread) return null
+  sawScroll(thread)
+  if (following) return { end: true }
+  const view = thread.getBoundingClientRect().top
+  const turn = [...thread.querySelectorAll('.ask-turn')].find((el) => el.getBoundingClientRect().bottom > view)
+  if (!turn) return { top: thread.scrollTop }
+  const slot = turn.querySelector('.ask-answer-slot')
+  const inAnswer = slot.getBoundingClientRect().top <= view
+  return { top: thread.scrollTop, turn: turn.dataset.turn, inAnswer, offset: (inAnswer ? slot : turn).getBoundingClientRect().top - view }
+}
+
+function putBack(thread, place) {
+  if (!thread) return
+  if (!place) return setTop(thread, 0)
+  if (place.end) return setTop(thread, thread.scrollHeight)
+  const turn = place.turn == null ? null : thread.querySelector(`.ask-turn[data-turn="${place.turn}"]`)
+  const held = place.inAnswer ? turn?.querySelector('.ask-answer-slot') : turn
+  const top = held ? thread.scrollTop + held.getBoundingClientRect().top - thread.getBoundingClientRect().top - place.offset : place.top
+  // Written only when the words moved: the reader may be scrolling.
+  if (Math.abs(top - thread.scrollTop) >= 1) setTop(thread, top)
+}
+
+/// Changes the chat on show without moving its reader.
+function keepingThread(chat, change) {
+  if (chat !== shown) return change()
+  const place = placeIn(currentThread())
+  change()
+  putBack(currentThread(), place)
 }
 
 /// Redraws wherever the chat is showing. The panel's list is redrawn with it,
 /// since the chat's time and cost are on it.
 function refresh(chat) {
   if (!chat || chat !== shown) return
-  const bottom = atEnd()
   if (showsIn === 'card' && card) {
     fillChat(card, chat, 'card')
     placeCard()
   } else if (showsIn === 'panel' && panel) {
     fillPanel()
   }
-  if (bottom) scrollThreadToEnd()
 }
 
 function hostOf(chat) {
@@ -981,25 +1037,27 @@ function updateTurn(chat, index) {
   if (!host) return
   const old = host.querySelector(`.ask-turn[data-turn="${index}"]`)
   if (!old) return refresh(chat)
-  const bottom = atEnd()
-  const fresh = fromHTML(turnHTML(chat, index))
-  old.replaceWith(fresh)
-  decorate(fresh, chat)
-  if (bottom) scrollThreadToEnd()
+  keepingThread(chat, () => {
+    const fresh = fromHTML(turnHTML(chat, index))
+    old.replaceWith(fresh)
+    decorate(fresh, chat)
+  })
 }
 
 function updateComposer(chat) {
   const old = hostOf(chat)?.querySelector('.ask-composer')
   if (!old) return
   const typed = old.querySelector('textarea')?.value ?? ''
-  const fresh = fromHTML(composerHTML(chat))
-  old.replaceWith(fresh)
-  const field = fresh.querySelector('textarea')
-  if (field) {
-    field.value = typed
-    grow(field)
-    ready(field)
-  }
+  keepingThread(chat, () => {
+    const fresh = fromHTML(composerHTML(chat))
+    old.replaceWith(fresh)
+    const field = fresh.querySelector('textarea')
+    if (field) {
+      field.value = typed
+      grow(field)
+      ready(field)
+    }
+  })
 }
 
 /// The chat's running total, in the card's head or the panel's.
@@ -1023,17 +1081,16 @@ function refreshAnswer(chat) {
   if (!chat || chat !== shown) return
   clearTimeout(renderTimer)
   renderTimer = setTimeout(() => {
-    const host = showsIn === 'card' ? card : panel?.querySelector('.ask-panel-body')
     const index = chat.turns.length - 1
-    const turnEl = host?.querySelector(`.ask-turn[data-turn="${index}"]`)
+    const turnEl = hostOf(chat)?.querySelector(`.ask-turn[data-turn="${index}"]`)
     if (!turnEl) return refresh(chat)
-    const bottom = atEnd()
-    const slot = turnEl.querySelector('.ask-answer-slot')
-    slot.innerHTML = answerHTML(chat.turns[index])
-    decorate(slot, chat)
-    const waiting = turnEl.querySelector('.is-waiting')
-    if (waiting && chat.turns[index].answer) waiting.remove()
-    if (bottom) scrollThreadToEnd()
+    keepingThread(chat, () => {
+      const slot = turnEl.querySelector('.ask-answer-slot')
+      slot.innerHTML = answerHTML(chat.turns[index])
+      decorate(slot, chat)
+      const waiting = turnEl.querySelector('.is-waiting')
+      if (waiting && chat.turns[index].answer) waiting.remove()
+    })
   }, 40)
 }
 
@@ -1121,6 +1178,9 @@ function handleClick(event) {
       const key = `${chat.id}:${index}`
       if (expanded.has(key)) expanded.delete(key)
       else expanded.add(key)
+      // They open under the button, which stays where it was clicked, even
+      // at the end of the thread.
+      following = false
       refresh(chat)
       break
     }
@@ -1439,6 +1499,10 @@ export function installAsk(dependencies) {
   document.addEventListener(
     'wheel',
     (event) => {
+      // Taken at once: the scroll a wheel makes reaches scrollTop later, and a
+      // piece of the answer arriving first would take the thread back down.
+      const thread = event.target.closest?.('.ask-thread')
+      if (thread && event.deltaY < 0 && thread.scrollTop > 0) following = false
       if (!event.target.closest?.('.ask-panel')) return
       const scroller = event.target.closest('.ask-thread, .ask-list, textarea, pre, table')
       const room = scroller && (event.deltaY ? scroller.scrollHeight > scroller.clientHeight : scroller.scrollWidth > scroller.clientWidth)
@@ -1447,11 +1511,14 @@ export function installAsk(dependencies) {
     { passive: false },
   )
   // Any scrolling at all, in the page, the panel or the card, puts the usage
-  // details away: they belong to a button that has just moved.
+  // details away: they belong to a button that has just moved. Not a scroll
+  // told late that finds the thread where it was when they opened.
   document.addEventListener(
     'scroll',
     (event) => {
-      if (usageTip && !usageTip.contains(event.target)) closeUsage()
+      const thread = event.target === currentThread() ? event.target : null
+      if (thread) sawScroll(thread)
+      if (usageTip && !usageTip.contains(event.target) && thread?.scrollTop !== usageThreadTop) closeUsage()
     },
     true,
   )
