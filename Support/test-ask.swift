@@ -103,6 +103,7 @@ enum AskTest {
         store()
         try glyph()
         try page()
+        try threadPlace()
 
         // What the transports and the page remembered in this executable's own
         // defaults, which every compiled suite shares.
@@ -1660,6 +1661,297 @@ enum AskTest {
         spin(0.3)
         check("turned off, the toolbar has no Ask",
               controller.window?.toolbar?.items.contains { $0.itemIdentifier.rawValue == "ask" } == false)
+        controller.window?.close()
+    }
+
+    // MARK: - The reader's place in a thread
+
+    /// An agent whose answer comes out a part at a time, each once the test
+    /// lets it: what the test does in between, a reader does while the answer
+    /// is coming.
+    struct Gated {
+        let script: URL
+        let dir: URL
+        let parts: Int
+        func release(_ part: Int) {
+            FileManager.default.createFile(atPath: dir.appendingPathComponent("go\(part)").path, contents: nil)
+        }
+    }
+
+    static func gatedClaude(_ parts: [[String]]) throws -> Gated {
+        let dir = folder.appendingPathComponent("gated-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        var script = "#!/bin/sh\ncat > /dev/null\n"
+        for (index, lines) in parts.enumerated() {
+            try (lines.joined(separator: "\n") + "\n").write(to: dir.appendingPathComponent("part\(index).jsonl"), atomically: true, encoding: .utf8)
+            // Ten seconds at most, so a failing check leaves nothing waiting.
+            if index > 0 { script += "n=0; while [ ! -f '\(dir.path)/go\(index)' ] && [ $n -lt 500 ]; do sleep 0.02; n=$((n+1)); done\n" }
+            script += "cat '\(dir.path)/part\(index).jsonl'\n"
+        }
+        let url = dir.appendingPathComponent("claude")
+        try script.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        return Gated(script: url, dir: dir, parts: parts.count)
+    }
+
+    static func jsonLine(_ object: [String: Any]) -> String {
+        String(data: try! JSONSerialization.data(withJSONObject: object), encoding: .utf8)!
+    }
+
+    static func says(_ text: String) -> String {
+        jsonLine(["type": "stream_event", "event": ["type": "content_block_delta", "index": 0, "delta": ["type": "text_delta", "text": text]]])
+    }
+
+    static func searches(_ query: String, id: String) -> [String] {
+        [
+            jsonLine(["type": "assistant", "message": ["content": [["type": "tool_use", "id": id, "name": "mcp__imark__search", "input": ["query": query]]]]]),
+            jsonLine(["type": "user", "message": ["content": [["type": "tool_result", "tool_use_id": id, "content": [["type": "text", "text": "1 match for “\(query)”.\nL5: Clients retry"]]]]]]),
+        ]
+    }
+
+    static let opening = [
+        #"{"type":"system","subtype":"init","session_id":"sess-place","tools":["mcp__imark__outline","mcp__imark__read","mcp__imark__search"]}"#,
+        #"{"type":"stream_event","event":{"type":"message_start","message":{"usage":{"input_tokens":900}}}}"#,
+    ]
+
+    static let closing = #"{"type":"result","subtype":"success","is_error":false,"duration_ms":1000,"num_turns":2,"total_cost_usd":0.001,"usage":{"input_tokens":900,"output_tokens":400}}"#
+
+    /// Enough of them to run well past the bottom of the panel.
+    static func paragraphs(_ name: String, _ count: Int) -> [String] {
+        (1...count).map { says("\(name), paragraph \($0): the words go on long enough to wrap onto a second line.\n\n") }
+    }
+
+    /// Three searches, folded into one line over the answer once it is done.
+    static func threeSearches(_ name: String) -> [String] {
+        searches("alpha", id: "\(name)1") + searches("beta", id: "\(name)2") + searches("gamma", id: "\(name)3")
+    }
+
+    static func threadPlace() throws {
+        UserDefaults.standard.setVolatileDomain(
+            ["askEnabled": true, "askKeepChats": "untilDeleted", "askShowsUsage": true],
+            forName: UserDefaults.argumentDomain
+        )
+        let url = folder.appendingPathComponent("place.md")
+        try document.write(to: url, atomically: true, encoding: .utf8)
+        let controller = DocumentWindowController(url: url)
+        controller.window?.setFrameOrigin(NSPoint(x: -6_000, y: 0))
+        controller.showWindow(nil)
+        spin(1.5)
+        guard let page = controller.content.renderer.subviews.compactMap({ $0 as? WKWebView }).first else {
+            return check("the window has a web view", false)
+        }
+        waitFor(5) { (js(page, "document.querySelectorAll('#content p').length") as? Int ?? 0) > 0 }
+        var agents: [Gated] = []
+        defer { for agent in agents { for part in 1..<max(agent.parts, 1) { agent.release(part) } } }
+
+        // How far the thread is from its end, which words are at the top of its
+        // view and how far down, and how many lists of chats Swift has sent:
+        // one comes after every answer.
+        js(page, """
+        (() => {
+          window.__view = '.ask-panel'
+          window.__thread = () => document.querySelector(`${__view} .ask-thread`)
+          window.__fromEnd = () => { const t = __thread(); return t.scrollHeight - t.scrollTop - t.clientHeight }
+          window.__atTop = () => {
+            const t = __thread()
+            const view = t.getBoundingClientRect().top
+            const p = [...t.querySelectorAll('.ask-answer p')].find((el) => el.getBoundingClientRect().bottom > view)
+            return p ? [p.textContent.slice(0, 26), p.getBoundingClientRect().top - view] : []
+          }
+          window.__lists = 0
+          const setChats = window.imark.ask.setChats
+          window.imark.ask.setChats = (chats) => { window.__lists += 1; return setChats(chats) }
+        })()
+        """)
+        let fromEnd = { js(page, "__fromEnd()") as? Double ?? -1 }
+        let atTop = { js(page, "__atTop()") as? [Any] ?? [] }
+        /// The same words, within a point of the same height.
+        func same(_ a: [Any], _ b: [Any]) -> Bool {
+            guard a.count == 2, b.count == 2, let words = a[0] as? String, let y = a[1] as? Double,
+                  let other = b[0] as? String, let z = b[1] as? Double else { return false }
+            return words == other && abs(y - z) <= 1
+        }
+        let lists = { js(page, "window.__lists") as? Int ?? -1 }
+        func agent(_ parts: [[String]]) throws -> Gated {
+            let gated = try gatedClaude(parts)
+            agents.append(gated)
+            Assistants.locations["claude"] = gated.script
+            return gated
+        }
+        func send(_ question: String) {
+            js(page, """
+            (() => {
+              const field = document.querySelector(`${__view} textarea`)
+              field.value = '\(question)'
+              field.dispatchEvent(new Event('input', { bubbles: true }))
+              document.querySelector(`${__view} [data-action=send]`).click()
+            })()
+            """)
+        }
+        func arrived(_ words: String) {
+            waitFor(10) { js(page, "!!__thread()?.textContent.includes('\(words)')") as? Bool == true }
+        }
+        /// Lets out the last part, with the answer's end: back once the page has
+        /// it and the list of chats that follows.
+        func finish(_ gated: Gated, since: Int? = nil) {
+            let before = since ?? lists()
+            gated.release(gated.parts - 1)
+            waitFor(10) { lists() > before && js(page, "!document.querySelector(`${__view} .is-stop`)") as? Bool == true }
+            spin(0.2)
+        }
+        /// The reader scrolling: the wheel reaches the page before the scroll
+        /// it makes, and the scroll is told as late as a hidden window tells it.
+        func scroll(to top: String, wheel: Double? = nil) {
+            js(page, """
+            (() => {
+              const t = __thread()
+              window.__scrolled = false
+              const heard = (event) => {
+                if (event.target !== t) return
+                window.__scrolled = true
+                document.removeEventListener('scroll', heard, true)
+              }
+              document.addEventListener('scroll', heard, true)
+              \(wheel.map { "t.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: \($0) }))" } ?? "")
+              const was = t.scrollTop
+              t.scrollTop = \(top)
+              if (t.scrollTop === was) heard({ target: t })
+            })()
+            """)
+            waitFor(3) { js(page, "window.__scrolled") as? Bool == true }
+        }
+
+        // Left alone, the thread keeps to the end of the answer, and is at its
+        // very end once the answer is in: a list of chats comes then, and the
+        // panel drawn again from it started at the top.
+        let first = try agent([opening + paragraphs("First one", 30), paragraphs("First two", 10), paragraphs("First three", 10) + [closing]])
+        controller.toggleAskPanel(nil)
+        spin(0.3)
+        send("Walk me through it")
+        arrived("First one, paragraph 30")
+        check("an answer coming in runs past the bottom of the panel",
+              (js(page, "__thread().scrollHeight - __thread().clientHeight") as? Double ?? 0) > 600)
+        check("and the thread keeps to its end", fromEnd() < 2, "\(fromEnd()) from the end")
+        first.release(1)
+        arrived("First two, paragraph 10")
+        check("as it grows", fromEnd() < 2, "\(fromEnd()) from the end")
+        finish(first)
+        check("once the answer is in, the thread is at its very end",
+              fromEnd() < 2, "\(fromEnd()) from the end, at \(js(page, "__thread().scrollTop") ?? "nil")")
+        check("with what can be done with the answer in view",
+              js(page, "(() => { const t = __thread(); const row = [...t.querySelectorAll('.ask-actions')].pop(); return !!row && row.getBoundingClientRect().bottom <= t.getBoundingClientRect().bottom + 1 })()") as? Bool == true)
+
+        // Scrolled up while the answer comes in, if only a few lines, the
+        // reader stays where they are, through the answer's end.
+        let second = try agent([
+            opening + threeSearches("second") + paragraphs("Second one", 30),
+            paragraphs("Second two", 10), paragraphs("Second three", 10), paragraphs("Second four", 10) + [closing],
+        ])
+        send("And the rest?")
+        arrived("Second one, paragraph 30")
+        let still = js(page, "__thread().scrollTop") as? Double
+        js(page, "__thread().dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -24 }))")
+        second.release(1)
+        arrived("Second two, paragraph 10")
+        spin(0.1)
+        check("a wheel going up stops the thread keeping to the end, before its scroll reaches the page",
+              js(page, "__thread().scrollTop") as? Double == still, "\(still ?? -1) → \(js(page, "__thread().scrollTop") ?? "nil")")
+        scroll(to: "t.scrollHeight", wheel: 100)
+        scroll(to: "t.scrollTop - 24", wheel: -24)
+        let reading = atTop()
+        second.release(2)
+        arrived("Second three, paragraph 10")
+        check("a reader a few lines up stays there as the answer grows", same(atTop(), reading), "\(reading) → \(atTop())")
+        finish(second)
+        check("and when it is done, its searches folded into one line above them",
+              same(atTop(), reading) && js(page, "[...__thread().querySelectorAll('.ask-fold')].pop()?.textContent.includes('Searched 3 times')") as? Bool == true,
+              "\(reading) → \(atTop())")
+
+        // Back at the end, the thread keeps to it again. Back at the very place
+        // the page left it, only the scroll events on the way tell.
+        let third = try agent([opening + paragraphs("Third one", 30), paragraphs("Third two", 10), paragraphs("Third three", 10) + [closing]])
+        send("One more")
+        arrived("Third one, paragraph 30")
+        scroll(to: "t.scrollTop - 300", wheel: -300)
+        scroll(to: "t.scrollHeight", wheel: 300)
+        third.release(1)
+        arrived("Third two, paragraph 10")
+        check("a reader back at the end is kept there", fromEnd() < 2, "\(fromEnd()) from the end")
+        // Dragged by its scroller, the thread moves with no wheel, and it can be
+        // drawn again before the page is told.
+        let dragged = js(page, "(() => { __thread().scrollTop -= 200; const at = __atTop(); window.imark.ask.configure({}); return [at, __atTop()] })()") as? [[Any]] ?? []
+        check("a scroll the page has not been told of yet is kept through a redraw",
+              dragged.count == 2 && same(dragged[0], dragged[1]), "\(dragged)")
+        scroll(to: "t.scrollHeight", wheel: 300)
+        finish(third)
+        check("and at the very end once the answer is in", fromEnd() < 2, "\(fromEnd()) from the end")
+        // Drawn again, the thread is put back at its end, and told of that
+        // scroll late: usage details opened in between stay open.
+        js(page, """
+        (() => {
+          window.__scrolled = false
+          const heard = (event) => {
+            if (event.target !== __thread()) return
+            window.__scrolled = true
+            document.removeEventListener('scroll', heard, true)
+          }
+          document.addEventListener('scroll', heard, true)
+          window.imark.ask.configure({})
+          ;[...__thread().querySelectorAll('.ask-actions .ask-meta')].pop().click()
+        })()
+        """)
+        waitFor(3) { js(page, "window.__scrolled") as? Bool == true }
+        check("usage details opened just after the chat is drawn again stay open",
+              js(page, "window.__scrolled && !!document.querySelector('.ask-tip')") as? Bool == true)
+        js(page, "document.querySelector('.ask-tip') && [...__thread().querySelectorAll('.ask-actions .ask-meta')].pop().click()")
+
+        // Drawn again for other reasons, the panel shows the same words.
+        scroll(to: "t.scrollHeight - t.clientHeight - 400", wheel: -400)
+        let kept = atTop()
+        NotificationCenter.default.post(name: Settings.changed, object: nil)
+        spin(0.3)
+        check("a change in Settings leaves the thread where the reader has it", same(atTop(), kept), "\(kept) → \(atTop())")
+        js(page, "document.querySelector('.ask-panel [data-action=list]').click()")
+        js(page, "document.querySelector('.ask-panel [data-action=list]').click()")
+        check("and so does the list of chats opened and closed", same(atTop(), kept), "\(kept) → \(atTop())")
+
+        // The searches over an answer unfold under their button, which stays
+        // where it was clicked, at the end of the thread too.
+        let fourth = try agent([opening + threeSearches("fourth") + [says("A short answer."), closing]])
+        let sent = lists()
+        send("Briefly?")
+        finish(fourth, since: sent)
+        scroll(to: "t.scrollHeight", wheel: 100)
+        let foldAt = { js(page, "(() => { const t = __thread(); const b = [...t.querySelectorAll('.ask-fold')].pop(); return Math.round(b.getBoundingClientRect().top - t.getBoundingClientRect().top) })()") as? Int ?? -1 }
+        let folded = foldAt()
+        check("a short answer at the end shows its searches' line", fromEnd() < 2 && folded > 0, "\(fromEnd()) from the end, the line at \(folded)")
+        js(page, "[...__thread().querySelectorAll('.ask-fold')].pop().click()")
+        check("unfolded, they open under a button that has not moved",
+              abs(foldAt() - folded) <= 1 && (js(page, "[...__thread().querySelectorAll('.ask-turn')].pop().querySelectorAll('.ask-act').length") as? Int) == 3,
+              "\(folded) → \(foldAt())")
+
+        // The card is drawn again from the list of chats as the panel is.
+        controller.toggleAskPanel(nil)
+        spin(0.2)
+        js(page, """
+        (() => {
+          const p = [...document.querySelectorAll('#content p')].find((el) => el.textContent.includes('Raw events'))
+          const range = document.createRange()
+          range.selectNodeContents(p)
+          window.getSelection().removeAllRanges()
+          window.getSelection().addRange(range)
+          window.__view = '.ask-card'
+        })()
+        """)
+        controller.askAboutSelection(nil)
+        waitFor(3) { js(page, "!!document.querySelector('.ask-card textarea')") as? Bool == true }
+        let fifth = try agent([opening + paragraphs("Fifth one", 30), paragraphs("Fifth two", 5) + [closing]])
+        send("And this?")
+        arrived("Fifth one, paragraph 30")
+        finish(fifth)
+        check("an answer in the card leaves it at its very end too",
+              (js(page, "__thread().scrollHeight - __thread().clientHeight") as? Double ?? 0) > 200 && fromEnd() < 2,
+              "\(fromEnd()) from the end")
         controller.window?.close()
     }
 }
